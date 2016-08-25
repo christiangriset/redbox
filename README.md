@@ -88,11 +88,11 @@ The field `Redbox.SendingInProgress` is exposed to help the user manage other op
 
 ### Close() error (Requires s3-to-Redshift hookup)
 
-Close attempts to run a Send and seal off the stream for good. Once the pipe is closed, all above functions error with ErrPipeIsClosed.
+Close attempts to run a Send and seal off the stream for good. Once the box is closed, all above functions error with ErrBoxIsClosed.
 
 ### CloseWithoutSending() error
 
-Closes the pipe without attempting to send.
+Closes the box without attempting to send.
 
 ### CreateAndUploadCustomManifest(manifestKey) error
 
@@ -106,7 +106,7 @@ The user can then set off their own custom COPY commands utilizing this manifest
 
 ### Reset() error
 
-Reset starts the pipe anew, as if it was newly instantiated, including it losing memory of all data it's transported.
+Reset starts the box anew, as if it was newly instantiated, including it losing memory of all data it's transported.
 
 ## Redbox - The Configuration
 
@@ -254,7 +254,7 @@ func SomeJob() {
   // Process more data and run more COPYs
   ...
   
-  // Once finished streaming, close the pipe without attempting to send.
+  // Once finished streaming, close the box without attempting to send.
   handlerError(r.CloseWithoutSending())
   ...
 }

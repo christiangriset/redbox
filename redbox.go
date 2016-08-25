@@ -28,13 +28,13 @@ var (
 	ErrSendingInProgress = fmt.Errorf("Cannot perform any action when sending is in progress.")
 
 	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
-	ErrIncompleteArgs = fmt.Errorf("Creating a redshift pipe requires a distination config, an s3 bucket and aws creds.")
+	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a distination config, an s3 bucket and aws creds.")
 
-	// ErrPipeIsSealed signals an operation which can't occur when a pipe is sealed.
-	ErrPipeIsSealed = fmt.Errorf("Cannot perform action when pipe is sealed.")
+	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
+	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
 
-	// ErrPipeIsClosed signals the pipe is closed and no action can be performed.
-	ErrPipeIsClosed = fmt.Errorf("Cannot perform any action, pipe is closed.")
+	// ErrBoxIsClosed signals the box is closed and no action can be performed.
+	ErrBoxIsClosed = fmt.Errorf("Cannot perform any action, box is closed.")
 
 	// ErrNoJobEndpoint indicates we can't send without a job endpoint
 	ErrNoJobEndpoint = fmt.Errorf("Cannot send s3-to-Redshift job without an endpoint.")
@@ -45,11 +45,11 @@ var (
 	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
 	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 
-	// ErrPackageNotSealed captures trying to create a custom manifest on an unsealed stream
-	ErrPackageNotSealed = fmt.Errorf("Can only create a custom manifest on a sealed stream.")
+	// ErrBoxNotSealed captures trying to create a custom manifest on an unsealed stream
+	ErrBoxNotSealed = fmt.Errorf("Can only create a custom manifest on a sealed stream.")
 )
 
-// Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally pipe to Redshift.
+// Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
 type Redbox struct {
 	// Inheret mutex locking/unlocking
 	sync.Mutex
@@ -75,10 +75,10 @@ type Redbox struct {
 	// bufferSize is the maximum size of data we're willing to buffer before creating an s3 file
 	bufferSize int
 
-	// bufferedData is the data currently buffered in the pipe. Calling Dump ships this data into s3
+	// bufferedData is the data currently buffered in the box. Calling Dump ships this data into s3
 	bufferedData []byte
 
-	// timestamp tracks the time a pipe was created or reset
+	// timestamp tracks the time a box was created or reset
 	timestamp time.Time
 
 	// fileNumber indicates the number of s3 files which have currently been created
@@ -90,7 +90,7 @@ type Redbox struct {
 	// isSealed indicates whether writes are currently allows to the buffer
 	isSealed bool
 
-	// isClosed indicates whether the pipe is closed
+	// isClosed indicates whether the box is closed
 	isClosed bool
 
 	// SendingInProgress indicates if a send is in progress
@@ -180,7 +180,7 @@ func (rp *Redbox) Reset() error {
 		return ErrSendingInProgress
 	}
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 	rp.Lock()
 	rp.timestamp = time.Now()
@@ -199,10 +199,10 @@ func (rp *Redbox) Pack(data []byte) error {
 		return ErrSendingInProgress
 	}
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 	if rp.isSealed {
-		return ErrPipeIsSealed
+		return ErrBoxIsSealed
 	}
 
 	// If the bytes aren't in JSON format, return an error
@@ -234,7 +234,7 @@ func (rp *Redbox) Pack(data []byte) error {
 // Seal closes writes and flushes any buffered data to s3. Call Unseal to enable writing again.
 func (rp *Redbox) Seal() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.SendingInProgress {
@@ -249,10 +249,10 @@ func (rp *Redbox) Seal() error {
 	return nil
 }
 
-// Unseal opens the pipe back up to write operations.
+// Unseal opens the box back up to write operations.
 func (rp *Redbox) Unseal() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.SendingInProgress {
@@ -303,7 +303,7 @@ func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 	}
 
 	if !rp.isSealed {
-		return ErrPackageNotSealed
+		return ErrBoxNotSealed
 	}
 
 	var manifest entries
@@ -345,10 +345,10 @@ func (rp *Redbox) uploadManifestAndConfig() error {
 // Send flushes any data remaining in the buffer and kicks off an s3-to-redshift job which
 // ultimately pipes all data to the specified Redshift table.
 // Send requires a validated destination config.
-// NOTE: An unsuccessful keeps the pipe closed.
+// NOTE: An unsuccessful keeps the box closed.
 func (rp *Redbox) Send() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.jobEndpoint == "" {
@@ -408,8 +408,8 @@ func (rp *Redbox) postS3ToRedshiftJob() error {
 	return nil
 }
 
-// Close sends the data to Redshift and permanently closes operations to the pipe.
-// To provide room for retry logic, the pipe is ONLY closed after a successful Send.
+// Close sends the data to Redshift and permanently closes operations to the box.
+// To provide room for retry logic, the box is ONLY closed after a successful Send.
 func (rp *Redbox) Close() error {
 	if rp.isClosed {
 		return nil
@@ -420,19 +420,19 @@ func (rp *Redbox) Close() error {
 	}
 
 	if err := rp.Send(); err != nil {
-		return fmt.Errorf("Error closing pipe: %s", err)
+		return fmt.Errorf("Error closing box: %s", err)
 	}
 	rp.isClosed = true
 	return nil
 }
 
-// CloseWithoutSending allows the user to permanently close the pipe without trying to send the data to Redshift.
+// CloseWithoutSending allows the user to permanently close the box without trying to send the data to Redshift.
 func (rp *Redbox) CloseWithoutSending() error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
 
 	rp.isClosed = true
-	rp.Reset() // Since the pipe is obsolete, empty out any buffered data to save memory.
+	rp.Reset() // Since the box is obsolete, empty out any buffered data to save memory.
 	return nil
 }

@@ -71,9 +71,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestSuccessfulPipeCreation(t *testing.T) {
+func TestSuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
-	// We should be able to successfully create a pipe with both complete and incomplete configurations.
+	// We should be able to successfully create a box with both complete and incomplete configurations.
 	_, err := NewRedbox(NewRedboxOptions{
 		DestinationConfig: &partialConfig,
 		S3Bucket:          s3Bucket,
@@ -92,7 +92,7 @@ func TestSuccessfulPipeCreation(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestUnsuccessfulPipeCreation(t *testing.T) {
+func TestUnsuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
 
 	// Error with incomplete input
@@ -248,7 +248,7 @@ func TestNoWritesAfterSeal(t *testing.T) {
 
 	assert.NoError(rp.Seal())
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.Equal(rp.Pack(data), ErrPipeIsSealed)
+	assert.Equal(rp.Pack(data), ErrBoxIsSealed)
 
 	// Ensure we can still write once unsealed
 	assert.NoError(rp.Unseal())
@@ -270,7 +270,7 @@ func TestUnsuccessfulCustomManifestCreationWhenUnsealed(t *testing.T) {
 	assert.NoError(rp.Pack(data))
 
 	manifestName := "test-manifest"
-	assert.Equal(rp.CreateAndUploadCustomManifest(manifestName), ErrPackageNotSealed)
+	assert.Equal(rp.CreateAndUploadCustomManifest(manifestName), ErrBoxNotSealed)
 	assert.NoError(rp.Seal())
 	assert.NoError(rp.CreateAndUploadCustomManifest(manifestName))
 }
@@ -373,7 +373,7 @@ func TestUnsuccessfulSendWithInvalidEndpoint(t *testing.T) {
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
 	assert.NoError(rp.Pack(data))
 	assert.Error(rp.Send())
-	assert.True(rp.isSealed) // It's important the pipe remains sealed after a failed job post.
+	assert.True(rp.isSealed) // It's important the box remains sealed after a failed job post.
 }
 
 func TestUnsuccessfulSendWithoutValidConfig(t *testing.T) {
@@ -394,7 +394,7 @@ func TestUnsuccessfulSendWithoutValidConfig(t *testing.T) {
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
 	assert.NoError(rp.Pack(data))
 	assert.Error(rp.Send())
-	assert.True(rp.isSealed) // It's important the pipe remains sealed after failing with an invalid config.
+	assert.True(rp.isSealed) // It's important the box remains sealed after failing with an invalid config.
 }
 
 func TestNoOperationsWhenClosed(t *testing.T) {
@@ -416,11 +416,11 @@ func TestNoOperationsWhenClosed(t *testing.T) {
 	assert.NoError(rp.Pack(data))
 
 	assert.NoError(rp.Close())
-	assert.Equal(rp.Pack(data), ErrPipeIsClosed)
-	assert.Equal(rp.Seal(), ErrPipeIsClosed)
-	assert.Equal(rp.Unseal(), ErrPipeIsClosed)
-	assert.Equal(rp.Send(), ErrPipeIsClosed)
-	assert.Equal(rp.Reset(), ErrPipeIsClosed)
+	assert.Equal(rp.Pack(data), ErrBoxIsClosed)
+	assert.Equal(rp.Seal(), ErrBoxIsClosed)
+	assert.Equal(rp.Unseal(), ErrBoxIsClosed)
+	assert.Equal(rp.Send(), ErrBoxIsClosed)
+	assert.Equal(rp.Reset(), ErrBoxIsClosed)
 	assert.NoError(rp.Close())
 	assert.NoError(rp.CloseWithoutSending())
 }
