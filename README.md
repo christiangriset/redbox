@@ -1,6 +1,6 @@
 
 
-# rio (Redshift IO)
+# redbox
 
 Library aiding data transport to Redshift through straighforward configuration and intuitive methods (Pack and Send).
 
