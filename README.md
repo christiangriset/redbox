@@ -15,7 +15,7 @@ Even without an s3-to-Redshift hookup, this is a well organized utility for gene
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
 - [Usage](#usage)
-  - [RedshiftIO - The Methods](#redshiftio---the-methods)
+  - [Redbox - The Methods](#redshiftio---the-methods)
     - [Pack(data []bytes) error](#packdata-bytes-error)
     - [Seal() error](#seal-error)
     - [Unseal() error](#unseal-error)
@@ -24,17 +24,17 @@ Even without an s3-to-Redshift hookup, this is a well organized utility for gene
     - [CloseWithoutSending() error](#closewithoutsending-error)
     - [CreateAndUploadCustomManifest(manifestKey) error](#createanduploadcustommanifestmanifestkey-error)
     - [Reset() error](#reset-error)
-  - [RedshiftIO - The Configuration](#redshiftio---the-configuration)
+  - [Redbox - The Configuration](#redshiftio---the-configuration)
     - [DestinationConfig](#destinationconfig)
       - [Validate() error](#validate-error)
-    - [NewRedshiftIOOptions](#newredshiftiooptions)
+    - [NewRedboxOptions](#newredshiftiooptions)
 - [Example With s3-to-Redshift Hookup](#example-with-s3-to-redshift-hookup)
 - [Example Without s3-to-Redshift Hookup](#example-without-s3-to-redshift-hookup)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 # Usage
 
-The two primary types supplied are `RedshiftIO` and `DestinationConfig`. Setting up a RedshiftIO requires a DestinationConfig. For exmaple:
+The two primary types supplied are `Redbox` and `DestinationConfig`. Setting up a Redbox requires a DestinationConfig. For exmaple:
 
 ```
 dc := &DestinationConfig{
@@ -47,7 +47,7 @@ dc := &DestinationConfig{
   DataTimestampColumn: "time"
 }
 
-r, err := NewRedshiftIO(&NewRedshiftIOOptions{
+r, err := NewRedbox(&NewRedboxOptions{
     DestinationConfig: dc,
     S3Bucket: "bucket-with-user-access",
     AWSKey: yourAWSAccessKeyID,
@@ -55,9 +55,9 @@ r, err := NewRedshiftIO(&NewRedshiftIOOptions{
   })
 ```
 
-## RedshiftIO - The Methods
+## Redbox - The Methods
 
-RedshiftIO is the workhorse manager. Below is an overview of the methods and setup.
+Redbox is the workhorse manager. Below is an overview of the methods and setup.
 
 ### Pack(data []byte) error
 
@@ -82,17 +82,17 @@ Send seals the stream, generates the s3 manifest and configuration files and kic
 While a Send is in progress **all methods** will error. After a successful send the stream loses memory of the previous
 data it streams an starts anew. This enables multiple send commands without worrying about duplicating data.
 
-The field `RedshiftIO.SendingInProgress` is exposed to help the user manage other operations during a send.
+The field `Redbox.SendingInProgress` is exposed to help the user manage other operations during a send.
 
 **Note** An unsuccessful Send will keep the stream sealed. If you're absolutely sure you'd still like to write data to the stream, call `Unseal()` to reenable Pack.
 
 ### Close() error (Requires s3-to-Redshift hookup)
 
-Close attempts to run a Send and seal off the stream for good. Once the pipe is closed, all above functions error with ErrPipeIsClosed.
+Close attempts to run a Send and seal off the stream for good. Once the box is closed, all above functions error with ErrBoxIsClosed.
 
 ### CloseWithoutSending() error
 
-Closes the pipe without attempting to send.
+Closes the box without attempting to send.
 
 ### CreateAndUploadCustomManifest(manifestKey) error
 
@@ -106,9 +106,9 @@ The user can then set off their own custom COPY commands utilizing this manifest
 
 ### Reset() error
 
-Reset starts the pipe anew, as if it was newly instantiated, including it losing memory of all data it's transported.
+Reset starts the box anew, as if it was newly instantiated, including it losing memory of all data it's transported.
 
-## RedshiftIO - The Configuration
+## Redbox - The Configuration
 
 ### DestinationConfig
 
@@ -151,10 +151,10 @@ The supported types for columns are currently (Type -> SQL type):
 
 DestinationConfig comes with the method `Validate()` which returns an error if the configuration is invalid, e.g. it has multiple dist keys. `Send` will run `Validate()` and therefore will fail if the user supplied an invalid configuration.
 
-### NewRedshiftIOOptions
+### NewRedboxOptions
 
 ```
-type NewRedshiftIOOptions struct {
+type NewRedboxOptions struct {
 	// Required inputs
 	DestinationConfig *DestinationConfig
 	S3Bucket          string
@@ -192,7 +192,7 @@ func SomeJob() {
     DataTimestampColumn: "time",
   }
 
-  r, err := NewRedshiftIO(&NewRedshiftIOOptions{
+  r, err := NewRedbox(&NewRedboxOptions{
     DestinationConfig: dc,
     S3Bucket: "bucket-with-user-access",
     AWSKey: yourAWSAccessKeyID,
@@ -229,7 +229,7 @@ func SomeJob() {
     Table: "table",
   }
 
-  r, err := NewRedshiftIO(&NewRedshiftIOOptions{
+  r, err := NewRedbox(&NewRedboxOptions{
     DestinationConfig: dc,
     S3Bucket: "bucket-with-user-access",
     AWSKey: yourAWSAccessKeyID,
@@ -254,7 +254,7 @@ func SomeJob() {
   // Process more data and run more COPYs
   ...
   
-  // Once finished streaming, close the pipe without attempting to send.
+  // Once finished streaming, close the box without attempting to send.
   handlerError(r.CloseWithoutSending())
   ...
 }

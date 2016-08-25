@@ -27,14 +27,14 @@ var (
 	// ErrSendingInProgress captures operations when a send is in progress.
 	ErrSendingInProgress = fmt.Errorf("Cannot perform any action when sending is in progress.")
 
-	// ErrIncompleteArgs captures when not enough arguments are given for generating a new RedshiftIO
-	ErrIncompleteArgs = fmt.Errorf("Creating a redshift pipe requires a distination config, an s3 bucket and aws creds.")
+	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
+	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a distination config, an s3 bucket and aws creds.")
 
-	// ErrPipeIsSealed signals an operation which can't occur when a pipe is sealed.
-	ErrPipeIsSealed = fmt.Errorf("Cannot perform action when pipe is sealed.")
+	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
+	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
 
-	// ErrPipeIsClosed signals the pipe is closed and no action can be performed.
-	ErrPipeIsClosed = fmt.Errorf("Cannot perform any action, pipe is closed.")
+	// ErrBoxIsClosed signals the box is closed and no action can be performed.
+	ErrBoxIsClosed = fmt.Errorf("Cannot perform any action, box is closed.")
 
 	// ErrNoJobEndpoint indicates we can't send without a job endpoint
 	ErrNoJobEndpoint = fmt.Errorf("Cannot send s3-to-Redshift job without an endpoint.")
@@ -45,12 +45,12 @@ var (
 	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
 	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 
-	// ErrPackageNotSealed captures trying to create a custom manifest on an unsealed stream
-	ErrPackageNotSealed = fmt.Errorf("Can only create a custom manifest on a sealed stream.")
+	// ErrBoxNotSealed captures trying to create a custom manifest on an unsealed stream
+	ErrBoxNotSealed = fmt.Errorf("Can only create a custom manifest on a sealed stream.")
 )
 
-// RedshiftIO manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally pipe to Redshift.
-type RedshiftIO struct {
+// Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
+type Redbox struct {
 	// Inheret mutex locking/unlocking
 	sync.Mutex
 
@@ -75,10 +75,10 @@ type RedshiftIO struct {
 	// bufferSize is the maximum size of data we're willing to buffer before creating an s3 file
 	bufferSize int
 
-	// bufferedData is the data currently buffered in the pipe. Calling Dump ships this data into s3
+	// bufferedData is the data currently buffered in the box. Calling Dump ships this data into s3
 	bufferedData []byte
 
-	// timestamp tracks the time a pipe was created or reset
+	// timestamp tracks the time a box was created or reset
 	timestamp time.Time
 
 	// fileNumber indicates the number of s3 files which have currently been created
@@ -90,7 +90,7 @@ type RedshiftIO struct {
 	// isSealed indicates whether writes are currently allows to the buffer
 	isSealed bool
 
-	// isClosed indicates whether the pipe is closed
+	// isClosed indicates whether the box is closed
 	isClosed bool
 
 	// SendingInProgress indicates if a send is in progress
@@ -103,8 +103,8 @@ type RedshiftIO struct {
 	force bool
 }
 
-// NewRedshiftIOOptions is the expected input for creating a new RedshiftIO
-type NewRedshiftIOOptions struct {
+// NewRedboxOptions is the expected input for creating a new Redbox
+type NewRedboxOptions struct {
 	// DestinationConfig describes the destination table of the data.
 	DestinationConfig *DestinationConfig
 
@@ -133,9 +133,9 @@ type NewRedshiftIOOptions struct {
 	Force bool
 }
 
-// NewRedshiftIO creates a new RedshiftIO given the input options, but without the requirement of a destination config.
+// NewRedbox creates a new Redbox given the input options, but without the requirement of a destination config.
 // Errors occur if there's an invalid input or if there's difficulty setting up an s3 connection.
-func NewRedshiftIO(options NewRedshiftIOOptions) (*RedshiftIO, error) {
+func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	dc := options.DestinationConfig
 	// Check for required inputs and a valid destination config
 	if dc == nil || options.S3Bucket == "" || options.AWSKey == "" || options.AWSPassword == "" {
@@ -160,7 +160,7 @@ func NewRedshiftIO(options NewRedshiftIOOptions) (*RedshiftIO, error) {
 	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
 	awsSession := session.New()
 
-	return &RedshiftIO{
+	return &Redbox{
 		destinationConfig: dc,
 		schema:            dc.Schema,
 		table:             dc.Table,
@@ -175,12 +175,12 @@ func NewRedshiftIO(options NewRedshiftIOOptions) (*RedshiftIO, error) {
 }
 
 // Reset clears out any buffered data and starts anew
-func (rp *RedshiftIO) Reset() error {
+func (rp *Redbox) Reset() error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 	rp.Lock()
 	rp.timestamp = time.Now()
@@ -194,15 +194,15 @@ func (rp *RedshiftIO) Reset() error {
 
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
 // Any error will leave the buffer unmodified.
-func (rp *RedshiftIO) Pack(data []byte) error {
+func (rp *Redbox) Pack(data []byte) error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 	if rp.isSealed {
-		return ErrPipeIsSealed
+		return ErrBoxIsSealed
 	}
 
 	// If the bytes aren't in JSON format, return an error
@@ -232,9 +232,9 @@ func (rp *RedshiftIO) Pack(data []byte) error {
 }
 
 // Seal closes writes and flushes any buffered data to s3. Call Unseal to enable writing again.
-func (rp *RedshiftIO) Seal() error {
+func (rp *Redbox) Seal() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.SendingInProgress {
@@ -249,10 +249,10 @@ func (rp *RedshiftIO) Seal() error {
 	return nil
 }
 
-// Unseal opens the pipe back up to write operations.
-func (rp *RedshiftIO) Unseal() error {
+// Unseal opens the box back up to write operations.
+func (rp *Redbox) Unseal() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.SendingInProgress {
@@ -264,7 +264,7 @@ func (rp *RedshiftIO) Unseal() error {
 }
 
 // dumpToS3 ships buffered  data to s3 and increments the index with a clean slate of running data
-func (rp *RedshiftIO) dumpToS3() error {
+func (rp *Redbox) dumpToS3() error {
 	if len(rp.bufferedData) == 0 {
 		return nil
 	}
@@ -282,7 +282,7 @@ func (rp *RedshiftIO) dumpToS3() error {
 }
 
 // createAndUploadManifest creates a manifest with a default convention and uploads it to s3.
-func (rp *RedshiftIO) createAndUploadManifest() error {
+func (rp *Redbox) createAndUploadManifest() error {
 	timestamp := rp.timestamp.Round(time.Hour).UTC().Format(time.RFC3339) //
 	defaultManifestName := fmt.Sprintf("%s_%s_%s.manifest", rp.schema, rp.table, timestamp)
 	return rp.CreateAndUploadCustomManifest(defaultManifestName)
@@ -293,7 +293,7 @@ func (rp *RedshiftIO) createAndUploadManifest() error {
 //
 // NOTE: This function is meant for custom functionality for use outside of s3-to-Redshift.
 // Running Send will still create it's own manifest and run s3-to-Redshift.
-func (rp *RedshiftIO) CreateAndUploadCustomManifest(manifestName string) error {
+func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 	type entry struct {
 		URL       string `json:"url"`
 		Mandatory bool   `json:"mandatory"`
@@ -303,7 +303,7 @@ func (rp *RedshiftIO) CreateAndUploadCustomManifest(manifestName string) error {
 	}
 
 	if !rp.isSealed {
-		return ErrPackageNotSealed
+		return ErrBoxNotSealed
 	}
 
 	var manifest entries
@@ -321,7 +321,7 @@ func (rp *RedshiftIO) CreateAndUploadCustomManifest(manifestName string) error {
 
 // uploadConfig uploads the config file to s3 and returns its location.
 // This operation requires a validated destination config
-func (rp *RedshiftIO) uploadConfig() error {
+func (rp *Redbox) uploadConfig() error {
 	dc := rp.destinationConfig
 	if err := dc.Validate(); err != nil {
 		return err
@@ -332,7 +332,7 @@ func (rp *RedshiftIO) uploadConfig() error {
 }
 
 // uploadManifestAndConfig uploads both the config and manifest files to s3 and returns their locations
-func (rp *RedshiftIO) uploadManifestAndConfig() error {
+func (rp *Redbox) uploadManifestAndConfig() error {
 	if err := rp.createAndUploadManifest(); err != nil {
 		return err
 	}
@@ -345,10 +345,10 @@ func (rp *RedshiftIO) uploadManifestAndConfig() error {
 // Send flushes any data remaining in the buffer and kicks off an s3-to-redshift job which
 // ultimately pipes all data to the specified Redshift table.
 // Send requires a validated destination config.
-// NOTE: An unsuccessful keeps the pipe closed.
-func (rp *RedshiftIO) Send() error {
+// NOTE: An unsuccessful keeps the box closed.
+func (rp *Redbox) Send() error {
 	if rp.isClosed {
-		return ErrPipeIsClosed
+		return ErrBoxIsClosed
 	}
 
 	if rp.jobEndpoint == "" {
@@ -387,7 +387,7 @@ func (rp *RedshiftIO) Send() error {
 }
 
 // postS3ToRedshiftJob constructs a payload for an s3-to-Redshift worker
-func (rp *RedshiftIO) postS3ToRedshiftJob() error {
+func (rp *Redbox) postS3ToRedshiftJob() error {
 	client := &http.Client{}
 	payload := fmt.Sprintf("--bucket %s --schema %s --tables %s --date %s --gzip", rp.s3Bucket, rp.schema, rp.table, rp.timestamp)
 	if rp.truncate {
@@ -408,9 +408,9 @@ func (rp *RedshiftIO) postS3ToRedshiftJob() error {
 	return nil
 }
 
-// Close sends the data to Redshift and permanently closes operations to the pipe.
-// To provide room for retry logic, the pipe is ONLY closed after a successful Send.
-func (rp *RedshiftIO) Close() error {
+// Close sends the data to Redshift and permanently closes operations to the box.
+// To provide room for retry logic, the box is ONLY closed after a successful Send.
+func (rp *Redbox) Close() error {
 	if rp.isClosed {
 		return nil
 	}
@@ -420,19 +420,19 @@ func (rp *RedshiftIO) Close() error {
 	}
 
 	if err := rp.Send(); err != nil {
-		return fmt.Errorf("Error closing pipe: %s", err)
+		return fmt.Errorf("Error closing box: %s", err)
 	}
 	rp.isClosed = true
 	return nil
 }
 
-// CloseWithoutSending allows the user to permanently close the pipe without trying to send the data to Redshift.
-func (rp *RedshiftIO) CloseWithoutSending() error {
+// CloseWithoutSending allows the user to permanently close the box without trying to send the data to Redshift.
+func (rp *Redbox) CloseWithoutSending() error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
 
 	rp.isClosed = true
-	rp.Reset() // Since the pipe is obsolete, empty out any buffered data to save memory.
+	rp.Reset() // Since the box is obsolete, empty out any buffered data to save memory.
 	return nil
 }
