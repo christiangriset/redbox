@@ -249,30 +249,6 @@ func TestNoWritesAfterSeal(t *testing.T) {
 	assert.NoError(rp.Seal())
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
 	assert.Equal(rp.Pack(data), ErrBoxIsSealed)
-
-	// Ensure we can still write once unsealed
-	assert.NoError(rp.Unseal())
-	assert.NoError(rp.Pack(data))
-}
-
-func TestUnsuccessfulCustomManifestCreationWhenUnsealed(t *testing.T) {
-	assert := assert.New(t)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       testEndpoint,
-	})
-	assert.NoError(err)
-
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-
-	manifestName := "test-manifest"
-	assert.Equal(rp.CreateAndUploadCustomManifest(manifestName), ErrBoxNotSealed)
-	assert.NoError(rp.Seal())
-	assert.NoError(rp.CreateAndUploadCustomManifest(manifestName))
 }
 
 func TestSuccessfulSend(t *testing.T) {
@@ -397,34 +373,6 @@ func TestUnsuccessfulSendWithoutValidConfig(t *testing.T) {
 	assert.True(rp.isSealed) // It's important the box remains sealed after failing with an invalid config.
 }
 
-func TestNoOperationsWhenClosed(t *testing.T) {
-	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
-	assert.NoError(err)
-
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-
-	assert.NoError(rp.Close())
-	assert.Equal(rp.Pack(data), ErrBoxIsClosed)
-	assert.Equal(rp.Seal(), ErrBoxIsClosed)
-	assert.Equal(rp.Unseal(), ErrBoxIsClosed)
-	assert.Equal(rp.Send(), ErrBoxIsClosed)
-	assert.Equal(rp.Reset(), ErrBoxIsClosed)
-	assert.NoError(rp.Close())
-	assert.NoError(rp.CloseWithoutSending())
-}
-
 func TestOperationsErrorDuringSend(t *testing.T) {
 	assert := assert.New(t)
 
@@ -455,10 +403,7 @@ func TestOperationsErrorDuringSend(t *testing.T) {
 	}
 	assert.Equal(rp.Pack(data), ErrSendingInProgress)
 	assert.Equal(rp.Seal(), ErrSendingInProgress)
-	assert.Equal(rp.Unseal(), ErrSendingInProgress)
 	assert.Equal(rp.Send(), ErrSendingInProgress)
-	assert.Equal(rp.Close(), ErrSendingInProgress)
-	assert.Equal(rp.CloseWithoutSending(), ErrSendingInProgress)
 	assert.Equal(rp.Reset(), ErrSendingInProgress)
 	sendWg.Wait()
 
@@ -466,8 +411,5 @@ func TestOperationsErrorDuringSend(t *testing.T) {
 	assert.False(rp.SendingInProgress)
 	assert.NoError(rp.Pack(data))
 	assert.NoError(rp.Seal())
-	assert.NoError(rp.Unseal())
-	assert.NoError(rp.Pack(data))
 	assert.NoError(rp.Send())
-	assert.NoError(rp.Close())
 }
