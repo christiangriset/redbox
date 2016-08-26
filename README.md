@@ -18,10 +18,7 @@ Even without an s3-to-Redshift hookup, this is a well organized utility for gene
   - [Redbox - The Methods](#redshiftio---the-methods)
     - [Pack(data []bytes) error](#packdata-bytes-error)
     - [Seal() error](#seal-error)
-    - [Unseal() error](#unseal-error)
     - [Send() error (Requires s3-to-Redshift hookup)](#send-error-requires-s3-to-redshift-hookup)
-    - [Close() error (Requires s3-to-Redshift hookup)](#close-error-requires-s3-to-redshift-hookup)
-    - [CloseWithoutSending() error](#closewithoutsending-error)
     - [CreateAndUploadCustomManifest(manifestKey) error](#createanduploadcustommanifestmanifestkey-error)
     - [Reset() error](#reset-error)
   - [Redbox - The Configuration](#redshiftio---the-configuration)
@@ -72,10 +69,6 @@ Pack is concurrency safe.
 
 Seal flushes any buffered data to s3 and prevents further Packing.
 
-### Unseal() error
-
-Unseals the stream and allows writes again. 
-
 ### Send() error (Requires s3-to-Redshift hookup)
 
 Send seals the stream, generates the s3 manifest and configuration files and kicks off an s3-to-Redshift job.
@@ -84,21 +77,13 @@ data it streams an starts anew. This enables multiple send commands without worr
 
 The field `Redbox.SendingInProgress` is exposed to help the user manage other operations during a send.
 
-**Note** An unsuccessful Send will keep the stream sealed. If you're absolutely sure you'd still like to write data to the stream, call `Unseal()` to reenable Pack.
-
-### Close() error (Requires s3-to-Redshift hookup)
-
-Close attempts to run a Send and seal off the stream for good. Once the box is closed, all above functions error with ErrBoxIsClosed.
-
-### CloseWithoutSending() error
-
-Closes the box without attempting to send.
+**Note** An unsuccessful Send will keep the stream sealed.
 
 ### CreateAndUploadCustomManifest(manifestKey) error
 
 This is the primary utility for users not intending to utilize an s3-to-Redshift hookup.
 Once the package is sealed (and thus all data is flushed to s3), this creates a manifest in s3
-with the custom manifest name.
+with the custom manifest name. This will also seal the box.
 
 The user can then set off their own custom COPY commands utilizing this manifest.
 
@@ -210,7 +195,6 @@ func SomeJob() {
   }
 
   handleError(r.Send())
-  handleError(r.Close())
 }
 ```
 
@@ -245,16 +229,11 @@ func SomeJob() {
     handleError(r.Pack(rowBytes))
   }
 
-  handleError(r.Seal())
   manifestKey := "data_locations.manifest"
   handleError(r.CreateAndUploadCustomManifest(manifestKey))
   handleError(runSomeCustomCopyCommand(manifestKey))
   handleError(r.Reset())
   
   // Process more data and run more COPYs
-  ...
-  
-  // Once finished streaming, close the box without attempting to send.
-  handlerError(r.CloseWithoutSending())
   ...
 }
