@@ -1,10 +1,8 @@
-
-
 # redbox
 
 Library aiding data transport to Redshift through straighforward configuration and intuitive methods (Pack and Send).
 
-The core functionality is the streaming of (JSON formatted) data into s3 while managing consistent file sizes and easy creation of manifests.
+The core under-the-hood functionality is the streaming of (JSON formatted) data into s3 while managing consistent file sizes and easy creation of manifests.
 The power of this library comes when pairing with an [s3-to-Redshift](https://github.com/clever/s3-to-redshift) worker. This enables
 the "Send" feature automating the kick off of an s3-To-Redshift job.
 
@@ -14,21 +12,23 @@ Even without an s3-to-Redshift hookup, this is a well organized utility for gene
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
 
+- [redbox](#redbox)
 - [Usage](#usage)
-  - [Redbox - The Methods](#redshiftio---the-methods)
-    - [Pack(data []bytes) error](#packdata-bytes-error)
+  - [Redbox - The Methods](#redbox---the-methods)
+    - [Pack(data []byte) error](#packdata-byte-error)
     - [Seal() error](#seal-error)
     - [Send() error (Requires s3-to-Redshift hookup)](#send-error-requires-s3-to-redshift-hookup)
     - [CreateAndUploadCustomManifest(manifestKey) error](#createanduploadcustommanifestmanifestkey-error)
-    - [NextBox() error](#reset-error)
-  - [Redbox - The Configuration](#redshiftio---the-configuration)
+    - [NextBox() error](#nextbox-error)
+  - [Redbox - The Configuration](#redbox---the-configuration)
     - [DestinationConfig](#destinationconfig)
       - [Validate() error](#validate-error)
-    - [NewRedboxOptions](#newredshiftiooptions)
+    - [NewRedboxOptions](#newredboxoptions)
 - [Example With s3-to-Redshift Hookup](#example-with-s3-to-redshift-hookup)
 - [Example Without s3-to-Redshift Hookup](#example-without-s3-to-redshift-hookup)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
 # Usage
 
 The two primary types supplied are `Redbox` and `DestinationConfig`. Setting up a Redbox requires a DestinationConfig. For exmaple:
@@ -71,13 +71,12 @@ Seal flushes any buffered data to s3 and prevents further Packing.
 
 ### Send() error (Requires s3-to-Redshift hookup)
 
-Send seals the stream, generates the s3 manifest and configuration files and kicks off an s3-to-Redshift job.
-While a Send is in progress **all methods** will error. After a successful send the stream loses memory of the previous
-data it streams an starts anew. This enables multiple send commands without worrying about duplicating data.
+Send seals the box, generates the s3 manifest and configuration files and kicks off an s3-to-Redshift job.
+While a Send is in progress **all methods** will error. After a successful send, NextBox is called, meaning memory of the previously packed data is lost.
 
 The field `Redbox.SendingInProgress` is exposed to help the user manage other operations during a send.
 
-**Note** An unsuccessful Send will keep the stream sealed.
+**Note** An unsuccessful Send will keep the box permanently sealed. Send is safe to implement retry logic around.
 
 ### CreateAndUploadCustomManifest(manifestKey) error
 
