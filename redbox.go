@@ -33,9 +33,6 @@ var (
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
 	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
 
-	// ErrBoxIsClosed signals the box is closed and no action can be performed.
-	ErrBoxIsClosed = fmt.Errorf("Cannot perform any action, box is closed.")
-
 	// ErrNoJobEndpoint indicates we can't send without a job endpoint
 	ErrNoJobEndpoint = fmt.Errorf("Cannot send s3-to-Redshift job without an endpoint.")
 
@@ -89,9 +86,6 @@ type Redbox struct {
 
 	// isSealed indicates whether writes are currently allows to the buffer
 	isSealed bool
-
-	// isClosed indicates whether the box is closed
-	isClosed bool
 
 	// SendingInProgress indicates if a send is in progress
 	SendingInProgress bool
@@ -179,9 +173,6 @@ func (rp *Redbox) Reset() error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
-	if rp.isClosed {
-		return ErrBoxIsClosed
-	}
 	rp.Lock()
 	rp.timestamp = time.Now()
 	rp.fileNumber = 0
@@ -197,9 +188,6 @@ func (rp *Redbox) Reset() error {
 func (rp *Redbox) Pack(data []byte) error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
-	}
-	if rp.isClosed {
-		return ErrBoxIsClosed
 	}
 	if rp.isSealed {
 		return ErrBoxIsSealed
@@ -233,10 +221,6 @@ func (rp *Redbox) Pack(data []byte) error {
 
 // Seal closes writes and flushes any buffered data to s3. Call Unseal to enable writing again.
 func (rp *Redbox) Seal() error {
-	if rp.isClosed {
-		return ErrBoxIsClosed
-	}
-
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
@@ -246,20 +230,6 @@ func (rp *Redbox) Seal() error {
 	}
 
 	rp.isSealed = true
-	return nil
-}
-
-// Unseal opens the box back up to write operations.
-func (rp *Redbox) Unseal() error {
-	if rp.isClosed {
-		return ErrBoxIsClosed
-	}
-
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
-	}
-
-	rp.isSealed = false
 	return nil
 }
 
@@ -288,11 +258,9 @@ func (rp *Redbox) createAndUploadManifest() error {
 	return rp.CreateAndUploadCustomManifest(defaultManifestName)
 }
 
-// CreateAndUploadCustomManifest generates a manifest with a custome name, pointing to the location of each data file generated.
-// The file is returned with an error if it couldn't successfully transport to s3.
+// CreateAndUploadCustomManifest generates a manifest with a custom name, pointing to the location of each data file generated.
 //
 // NOTE: This function is meant for custom functionality for use outside of s3-to-Redshift.
-// Running Send will still create it's own manifest and run s3-to-Redshift.
 func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 	type entry struct {
 		URL       string `json:"url"`
@@ -302,8 +270,8 @@ func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 		Entries []entry `json:"entries"`
 	}
 
-	if !rp.isSealed {
-		return ErrBoxNotSealed
+	if err := rp.Seal(); err != nil {
+		return err
 	}
 
 	var manifest entries
@@ -347,10 +315,6 @@ func (rp *Redbox) uploadManifestAndConfig() error {
 // Send requires a validated destination config.
 // NOTE: An unsuccessful keeps the box closed.
 func (rp *Redbox) Send() error {
-	if rp.isClosed {
-		return ErrBoxIsClosed
-	}
-
 	if rp.jobEndpoint == "" {
 		return ErrNoJobEndpoint
 	}
@@ -365,10 +329,6 @@ func (rp *Redbox) Send() error {
 	}
 
 	// Dump any remaining data which hasn't been shipped to s3, prevent writes, and upload the manifest and configs
-	if err := rp.Seal(); err != nil {
-		return err
-	}
-
 	if err := rp.uploadManifestAndConfig(); err != nil {
 		return err
 	}
@@ -405,34 +365,5 @@ func (rp *Redbox) postS3ToRedshiftJob() error {
 	if err != nil {
 		return fmt.Errorf("Error submitting job:%s", err)
 	}
-	return nil
-}
-
-// Close sends the data to Redshift and permanently closes operations to the box.
-// To provide room for retry logic, the box is ONLY closed after a successful Send.
-func (rp *Redbox) Close() error {
-	if rp.isClosed {
-		return nil
-	}
-
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
-	}
-
-	if err := rp.Send(); err != nil {
-		return fmt.Errorf("Error closing box: %s", err)
-	}
-	rp.isClosed = true
-	return nil
-}
-
-// CloseWithoutSending allows the user to permanently close the box without trying to send the data to Redshift.
-func (rp *Redbox) CloseWithoutSending() error {
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
-	}
-
-	rp.isClosed = true
-	rp.Reset() // Since the box is obsolete, empty out any buffered data to save memory.
 	return nil
 }
