@@ -258,11 +258,9 @@ func (rp *Redbox) createAndUploadManifest() error {
 	return rp.CreateAndUploadCustomManifest(defaultManifestName)
 }
 
-// CreateAndUploadCustomManifest generates a manifest with a custome name, pointing to the location of each data file generated.
-// The file is returned with an error if it couldn't successfully transport to s3.
+// CreateAndUploadCustomManifest generates a manifest with a custom name, pointing to the location of each data file generated.
 //
 // NOTE: This function is meant for custom functionality for use outside of s3-to-Redshift.
-// Running Send will still create it's own manifest and run s3-to-Redshift.
 func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 	type entry struct {
 		URL       string `json:"url"`
@@ -272,8 +270,8 @@ func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
 		Entries []entry `json:"entries"`
 	}
 
-	if !rp.isSealed {
-		return ErrBoxNotSealed
+	if err := rp.Seal(); err != nil {
+		return err
 	}
 
 	var manifest entries
@@ -331,10 +329,6 @@ func (rp *Redbox) Send() error {
 	}
 
 	// Dump any remaining data which hasn't been shipped to s3, prevent writes, and upload the manifest and configs
-	if err := rp.Seal(); err != nil {
-		return err
-	}
-
 	if err := rp.uploadManifestAndConfig(); err != nil {
 		return err
 	}
