@@ -20,7 +20,7 @@ Even without an s3-to-Redshift hookup, this is a well organized utility for gene
     - [Seal() error](#seal-error)
     - [Send() error (Requires s3-to-Redshift hookup)](#send-error-requires-s3-to-redshift-hookup)
     - [CreateAndUploadCustomManifest(manifestKey) error](#createanduploadcustommanifestmanifestkey-error)
-    - [Reset() error](#reset-error)
+    - [NextBox() error](#reset-error)
   - [Redbox - The Configuration](#redshiftio---the-configuration)
     - [DestinationConfig](#destinationconfig)
       - [Validate() error](#validate-error)
@@ -89,9 +89,9 @@ The user can then set off their own custom COPY commands utilizing this manifest
 
 **Note**: The input should *not* be the full s3 path. The configuration will already include the bucket and create the full path for you. This helps prevent cases where a different bucket from the input configuration is supplied.
 
-### Reset() error
+### NextBox() error
 
-Reset starts the box anew, as if it was newly instantiated, including it losing memory of all data it's transported.
+NextBox gives you a new box, forgetting everything about previously packaged data
 
 ## Redbox - The Configuration
 
@@ -232,7 +232,7 @@ func SomeJob() {
   manifestKey := "data_locations.manifest"
   handleError(r.CreateAndUploadCustomManifest(manifestKey))
   handleError(runSomeCustomCopyCommand(manifestKey))
-  handleError(r.Reset())
+  handleError(r.NextBox())
   
   // Process more data and run more COPYs
   ...
