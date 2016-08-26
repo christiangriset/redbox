@@ -404,7 +404,7 @@ func TestOperationsErrorDuringSend(t *testing.T) {
 	assert.Equal(rp.Pack(data), ErrSendingInProgress)
 	assert.Equal(rp.Seal(), ErrSendingInProgress)
 	assert.Equal(rp.Send(), ErrSendingInProgress)
-	assert.Equal(rp.Reset(), ErrSendingInProgress)
+	assert.Equal(rp.NextBox(), ErrSendingInProgress)
 	sendWg.Wait()
 
 	// After sending is finished, ensure operations work as normal

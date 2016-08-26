@@ -168,8 +168,8 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	}, nil
 }
 
-// Reset clears out any buffered data and starts anew
-func (rp *Redbox) Reset() error {
+// NextBox gives you a new box, forgetting everything about previously packaged data
+func (rp *Redbox) NextBox() error {
 	if rp.SendingInProgress {
 		return ErrSendingInProgress
 	}
@@ -341,8 +341,7 @@ func (rp *Redbox) Send() error {
 		return postErr
 	}
 
-	// Start anew
-	rp.Reset()
+	rp.NextBox()
 	return nil
 }
 
