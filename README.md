@@ -142,11 +142,13 @@ type NewRedboxOptions struct {
 	// Required inputs
 	DestinationConfig *DestinationConfig
 	S3Bucket          string
+
+  // Optional AWS creds. If not provided they'll be grabbed from the environment.
 	AWSKey            string
 	AWSPassword       string
+	AWSToken          string
 	
 	// Optional
-	AWSToken    string
 	BufferSize  int    // Default 10MB
 	JobEndpoint string // Endpoint for posting an s3-to-Redshift job. Required for s3-to-Redshift hookup
 	Truncate    bool   // Flag to truncate the destination table upon Send
