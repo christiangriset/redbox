@@ -28,7 +28,7 @@ var (
 	ErrSendingInProgress = fmt.Errorf("Cannot perform any action when sending is in progress.")
 
 	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
-	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a distination config, an s3 bucket and aws creds.")
+	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a distination config and an s3 bucket.")
 
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
 	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
@@ -111,7 +111,7 @@ type NewRedboxOptions struct {
 	// AWSPassword is the AWS SECRET ACCESS KEY
 	AWSPassword string
 
-	// AWSToken is the AWS SESSION TOKEN. This is NOT a requirement
+	// AWSToken is the AWS SESSION TOKEN
 	AWSToken string
 
 	// JobEndpoint is the endpoint responsible for kicking off an s3-to-Redshift job
@@ -132,7 +132,7 @@ type NewRedboxOptions struct {
 func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	dc := options.DestinationConfig
 	// Check for required inputs and a valid destination config
-	if dc == nil || options.S3Bucket == "" || options.AWSKey == "" || options.AWSPassword == "" {
+	if dc == nil || options.S3Bucket == "" {
 		return nil, ErrIncompleteArgs
 	}
 
@@ -145,12 +145,19 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		bufferSize = options.BufferSize
 	}
 
-	// Setup s3 handler
+	// Setup s3 handler and aws configuration. If no creds are explicitly provided, they'll be grabbed from the environment.
 	region, err := getRegionForBucket(options.S3Bucket)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
 	}
-	awsCreds := credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
+
+	// If AWS creds were provided use those, otherwise grab them from your environment
+	var awsCreds *credentials.Credentials
+	if options.AWSKey == "" && options.AWSPassword == "" && options.AWSToken == "" {
+		awsCreds = credentials.NewEnvCredentials()
+	} else {
+		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
+	}
 	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
 	awsSession := session.New()
 
