@@ -25,6 +25,9 @@ var (
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
 	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
 
+	// ErrBoxNotSealed signals an operation which can't occur when a box is not sealed.
+	ErrBoxNotSealed = fmt.Errorf("Cannot perform action when box is not sealed.")
+
 	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
 	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 )
@@ -158,14 +161,9 @@ func (sb *S3Box) Pack(data []byte) error {
 	return nil
 }
 
-// Seal closes writes and flushes any buffered data to s3. A manifest is then
-// created and uploaded to s3 with the given name.
-func (sb *S3Box) Seal(manifestName string) error {
+// Seal closes writes and flushes any buffered data to s3.
+func (sb *S3Box) Seal() error {
 	if err := sb.dumpToS3(); err != nil {
-		return err
-	}
-
-	if err := sb.createAndUploadManifest(manifestName); err != nil {
 		return err
 	}
 
@@ -191,7 +189,13 @@ func (sb *S3Box) dumpToS3() error {
 	return nil
 }
 
-func (sb *S3Box) createAndUploadManifest(manifestName string) error {
+// CreateManifests takes in a manifest slug and splits the s3 files across the
+// input number of manifests. If nManifests is greater than the number of generated
+// s3 files, you'll only receive manifests back point
+func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
+	if !sb.isSealed {
+		return nil, ErrBoxNotSealed
+	}
 	type entry struct {
 		URL       string `json:"url"`
 		Mandatory bool   `json:"mandatory"`
@@ -200,15 +204,30 @@ func (sb *S3Box) createAndUploadManifest(manifestName string) error {
 		Entries []entry `json:"entries"`
 	}
 
-	var manifest entries
-	for _, fileName := range sb.fileLocations {
-		manifest.Entries = append(manifest.Entries, entry{
+	if nManifests > len(sb.fileLocations) {
+		nManifests = len(sb.fileLocations)
+	}
+	manifests := make([]entries, nManifests)
+
+	// Evenly distribute the file locations across the manifests
+	for i, fileName := range sb.fileLocations {
+		index := i % nManifests
+		manifests[index].Entries = append(manifests[index].Entries, entry{
 			URL:       fileName,
 			Mandatory: true,
 		})
 	}
 
-	manifestBytes, _ := json.Marshal(manifest)
-	log.Printf("Writing manifest to s3://%s/%s\n", sb.s3Bucket, manifestName)
-	return writeToS3(sb.s3Handler, sb.s3Bucket, manifestName, manifestBytes)
+	manifestLocations := make([]string, nManifests)
+	for i, manifest := range manifests {
+		manifestBytes, _ := json.Marshal(manifest)
+		manifestName := fmt.Sprintf("%s_%d.manifest", manifestSlug, i)
+		manifestLocations[i] = manifestName
+		if err := writeToS3(sb.s3Handler, sb.s3Bucket, manifestName, manifestBytes); err != nil {
+			return nil, err
+		}
+		log.Printf("Wrote manifest to s3://%s/%s\n", sb.s3Bucket, manifestName)
+	}
+
+	return manifestLocations, nil
 }

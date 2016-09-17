@@ -12,10 +12,9 @@ import (
 )
 
 const (
-	s3Bucket     = "test-bucket"
-	awsKey       = "Key"
-	awsPassword  = "Pass"
-	testManifest = "test.manifest"
+	s3Bucket    = "test-bucket"
+	awsKey      = "Key"
+	awsPassword = "Pass"
 )
 
 func getRegionForBucketSuccess(bucket string) (string, error) {
@@ -63,7 +62,7 @@ func TestUnsuccessfulBoxCreation(t *testing.T) {
 
 func TestValidPacks(t *testing.T) {
 	assert := assert.New(t)
-	rp, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -71,10 +70,10 @@ func TestValidPacks(t *testing.T) {
 	assert.NoError(err)
 
 	data1, _ := json.Marshal(map[string]interface{}{"Table": "row"})
-	assert.NoError(rp.Pack(data1))
-	assert.Equal(len(rp.bufferedData), len(data1)+1) // Account for the appended new line character
+	assert.NoError(sb.Pack(data1))
+	assert.Equal(len(sb.bufferedData), len(data1)+1) // Account for the appended new line character
 
-	rp, err = NewS3Box(NewS3BoxOptions{
+	sb, err = NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -82,14 +81,14 @@ func TestValidPacks(t *testing.T) {
 	assert.NoError(err)
 
 	data2, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data2))
-	assert.Equal(len(rp.bufferedData), len(data2)+1) // Account for the appended new line character
+	assert.NoError(sb.Pack(data2))
+	assert.Equal(len(sb.bufferedData), len(data2)+1) // Account for the appended new line character
 }
 
 func TestCorrectNumberOfS3Writes(t *testing.T) {
 	assert := assert.New(t)
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	rp, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -99,15 +98,15 @@ func TestCorrectNumberOfS3Writes(t *testing.T) {
 
 	nFiles := 10
 	for i := 0; i < nFiles; i++ {
-		assert.NoError(rp.Pack(data))
+		assert.NoError(sb.Pack(data))
 	}
-	assert.Equal(rp.fileNumber, nFiles)
-	assert.Equal(len(rp.fileLocations), nFiles)
+	assert.Equal(sb.fileNumber, nFiles)
+	assert.Equal(len(sb.fileLocations), nFiles)
 }
 
 func TestInvalidPacks(t *testing.T) {
 	assert := assert.New(t)
-	rp, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -115,10 +114,10 @@ func TestInvalidPacks(t *testing.T) {
 	assert.NoError(err)
 
 	stringData := []byte("Some string")
-	assert.Error(rp.Pack(stringData))
+	assert.Error(sb.Pack(stringData))
 
 	jsonArray := []byte("[{\"k1\": \"v1\"},{\"k2\":\"v2\"}\"]")
-	assert.Equal(rp.Pack(jsonArray), ErrInvalidJSONInput)
+	assert.Equal(sb.Pack(jsonArray), ErrInvalidJSONInput)
 }
 
 func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
@@ -128,7 +127,7 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	// r := mux.NewRouter()
 	// r.HandleFunc("/", fastHandler).Methods("POST")
 	// httptest.NewServer(r)
-	rp, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -136,14 +135,14 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	})
 	assert.NoError(err)
 
-	assert.NoError(rp.Pack(data))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
+	assert.NoError(sb.Pack(data))
+	assert.Equal(len(sb.bufferedData), len(data)+1)
 
 	invalidData := []byte("Some string")
-	assert.Error(rp.Pack(invalidData))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
-	assert.Equal(rp.fileNumber, 0)
-	assert.Equal(len(rp.fileLocations), 0)
+	assert.Error(sb.Pack(invalidData))
+	assert.Equal(len(sb.bufferedData), len(data)+1)
+	assert.Equal(sb.fileNumber, 0)
+	assert.Equal(len(sb.fileLocations), 0)
 
 	// Since we'll be packing data larger than the buffer size, this will trigger
 	// a write. And since this write will fail the pack will fail and the data
@@ -152,22 +151,69 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	defer func() {
 		writeToS3 = writeToS3Success
 	}()
-	assert.Error(rp.Pack(data))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
-	assert.Equal(rp.fileNumber, 0)
-	assert.Equal(len(rp.fileLocations), 0)
+	assert.Error(sb.Pack(data))
+	assert.Equal(len(sb.bufferedData), len(data)+1)
+	assert.Equal(sb.fileNumber, 0)
+	assert.Equal(len(sb.fileLocations), 0)
 }
 
 func TestNoWritesAfterSeal(t *testing.T) {
 	assert := assert.New(t)
-	rp, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
 	})
 	assert.NoError(err)
 
-	assert.NoError(rp.Seal(testManifest))
+	assert.NoError(sb.Seal())
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.Equal(rp.Pack(data), ErrBoxIsSealed)
+	assert.Equal(sb.Pack(data), ErrBoxIsSealed)
+}
+
+func TestCantCreateManifestsWhenBoxUnsealed(t *testing.T) {
+	assert := assert.New(t)
+	sb, err := NewS3Box(NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	})
+	assert.NoError(err)
+
+	_, err = sb.CreateManifests("test", 1)
+	assert.Equal(err, ErrBoxNotSealed)
+}
+
+func TestCreatesCorrectNumberOfManifests(t *testing.T) {
+	assert := assert.New(t)
+	sb, err := NewS3Box(NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	})
+	assert.NoError(err)
+
+	// Artificially add some file locations
+	fileSlug := "test_files"
+	nFiles := 10
+	for i := 0; i < nFiles; i++ {
+		file := fmt.Sprintf("%s_%d.json.gz", fileSlug, i)
+		sb.fileLocations = append(sb.fileLocations, file)
+	}
+
+	assert.NoError(sb.Seal())
+
+	manifestKey := "test"
+	nManifests := 5
+	manifestLocations, err := sb.CreateManifests(manifestKey, nManifests)
+	assert.NoError(err)
+	assert.Equal(nManifests, len(manifestLocations))
+
+	// If the number of manifests is greater than the number of files,
+	// return only that number of manifests.
+	nManifests = 100
+	manifestLocations, err = sb.CreateManifests(manifestKey, nManifests)
+	assert.NoError(err)
+	assert.Equal(nFiles, len(manifestLocations))
+
 }
