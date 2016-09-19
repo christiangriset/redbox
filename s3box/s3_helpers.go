@@ -1,6 +1,7 @@
 package s3box
 
 import (
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ const aesAlgo = "AES256" // Algo used for server-side encryption.
 // Modularize functions for testing
 var (
 	getRegionForBucket func(string) (string, error)
-	writeToS3          func(s3Handler *s3.S3, bucket string, fileKey string, data []byte) error
+	writeToS3          func(s3Handler *s3.S3, bucket string, fileKey string, data []byte, gzip bool) error
 )
 
 // getRegionForBucketProd looks up the region name for the given bucket
@@ -88,7 +89,14 @@ func compressAndWriteBytesToS3(s3Handler *s3.S3, bucket, key string, data []byte
 	return streamErr
 }
 
+func writeToS3Manager(s3Handler *s3.S3, bucket, key string, data []byte, gzip bool) error {
+	if gzip {
+		return compressAndWriteBytesToS3(s3Handler, bucket, key, data)
+	}
+	return uploadToS3(s3Handler, bucket, key, bytes.NewReader(data))
+}
+
 func init() {
 	getRegionForBucket = getRegionForBucketProd
-	writeToS3 = compressAndWriteBytesToS3
+	writeToS3 = writeToS3Manager
 }

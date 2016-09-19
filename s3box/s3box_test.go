@@ -25,11 +25,11 @@ func getRegionForBucketFail(bucket string) (string, error) {
 	return "", fmt.Errorf("Failed getting bucket location.")
 }
 
-func writeToS3Success(s3Handler *s3.S3, schema, table string, input []byte) error {
+func writeToS3Success(s3Handler *s3.S3, schema, table string, input []byte, gzip bool) error {
 	return nil
 }
 
-func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte) error {
+func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte, gzip bool) error {
 	return fmt.Errorf("Failed writing to s3.")
 }
 
