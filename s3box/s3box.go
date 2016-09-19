@@ -179,7 +179,7 @@ func (sb *S3Box) dumpToS3() error {
 	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), sb.fileNumber)
 	sb.Lock()
 	defer sb.Unlock()
-	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData); err != nil {
+	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
 		return err
 	}
 	sb.fileNumber++
@@ -223,7 +223,7 @@ func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string,
 		manifestBytes, _ := json.Marshal(manifest)
 		manifestName := fmt.Sprintf("%s_%d.manifest", manifestSlug, i)
 		manifestLocations[i] = manifestName
-		if err := writeToS3(sb.s3Handler, sb.s3Bucket, manifestName, manifestBytes); err != nil {
+		if err := writeToS3(sb.s3Handler, sb.s3Bucket, manifestName, manifestBytes, false); err != nil {
 			return nil, err
 		}
 		log.Printf("Wrote manifest to s3://%s/%s\n", sb.s3Bucket, manifestName)
