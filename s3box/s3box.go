@@ -32,7 +32,7 @@ var (
 	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 )
 
-// S3Box manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
+// S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
 type S3Box struct {
 	// Inheret mutex locking/unlocking
 	sync.Mutex
@@ -62,25 +62,33 @@ type S3Box struct {
 	isSealed bool
 }
 
-// NewS3BoxOptions is the expected input for creating a new S3Box
+// NewS3BoxOptions is the expected input for creating a new S3Box.
+// Currently only an S3Bucket is required. If AWS vars aren't explicitly provided, they'll
+// be pulled from your environment.
 type NewS3BoxOptions struct {
-	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket
+	// S3Bucket is the destination s3 bucket.
+	// This is required.
 	S3Bucket string
 
-	// AWSKey is the AWS ACCESS KEY ID
+	// AWSKey is the AWS ACCESS KEY ID.
+	// By default grabs from your environment.
 	AWSKey string
 
-	// AWSPassword is the AWS SECRET ACCESS KEY
+	// AWSPassword is the AWS SECRET ACCESS KEY.
+	// By default grabs from your environment.
 	AWSPassword string
 
-	// AWSToken is the AWS SESSION TOKEN
+	// AWSToken is the AWS SESSION TOKEN.
+	// By default grabs from your environment.
 	AWSToken string
 
-	// BufferSize is the maximum size of data we're willing to buffer before creating an s3 file
+	// BufferSize is the maximum size of data we buffer internally
+	// before creating an s3 file.
+	// This is optional and defaults to 10MB.
 	BufferSize int
 }
 
-// NewS3Box creates a new S3Box given the input options, but without the requirement of a destination config.
+// NewS3Box creates a new S3Box given the input options.
 // Errors occur if there's an invalid input or if there's difficulty setting up an s3 connection.
 func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	// Check for required inputs and a valid destination config
@@ -162,6 +170,8 @@ func (sb *S3Box) Pack(data []byte) error {
 }
 
 // Seal closes writes and flushes any buffered data to s3.
+// Once the box is sealed, you can no longer write to this box.
+// Use NextBox to create a new box if you'd like to continue packing.
 func (sb *S3Box) Seal() error {
 	if err := sb.dumpToS3(); err != nil {
 		return err
@@ -189,7 +199,7 @@ func (sb *S3Box) dumpToS3() error {
 	return nil
 }
 
-// CreateManifests takes in a manifest slug and splits the s3 files across the
+// CreateManifests takes in a manifest key and splits the s3 files across the
 // input number of manifests. If nManifests is greater than the number of generated
 // s3 files, you'll only receive manifests back point
 func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
