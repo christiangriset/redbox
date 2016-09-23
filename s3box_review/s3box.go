@@ -150,18 +150,16 @@ func (sb *S3Box) Pack(data []byte) error {
 	}
 
 	sb.Lock()
+	defer sb.Unlock()
 	oldBuffer := sb.bufferedData // If write fails, keep buffered data unchanged
 	data = append(data, '\n')    // Append a new line for text-editor readability
 	sb.bufferedData = append(sb.bufferedData, data...)
-	sb.Unlock()
 
 	// If we're hitting capacity, dump the results to s3.
 	// If shipping to s3 errors, don't modify the buffer.
 	if len(sb.bufferedData) > sb.bufferSize {
 		if err := sb.dumpToS3(); err != nil {
-			sb.Lock()
 			sb.bufferedData = oldBuffer
-			sb.Unlock()
 			return err
 		}
 	}
@@ -173,6 +171,8 @@ func (sb *S3Box) Pack(data []byte) error {
 // Once the box is sealed, you can no longer write to this box.
 // Use NextBox to create a new box if you'd like to continue packing.
 func (sb *S3Box) Seal() error {
+	sb.Lock()
+	defer sb.Unlock()
 	if err := sb.dumpToS3(); err != nil {
 		return err
 	}
@@ -187,8 +187,6 @@ func (sb *S3Box) dumpToS3() error {
 		return nil
 	}
 	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), sb.fileNumber)
-	sb.Lock()
-	defer sb.Unlock()
 	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
 		return err
 	}
