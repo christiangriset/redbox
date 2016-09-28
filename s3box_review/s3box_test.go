@@ -133,7 +133,7 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	assert.Equal(len(sb.fileLocations), 0)
 }
 
-func TestNoWritesAfterSeal(t *testing.T) {
+func TestNoWritesAfterManifestCreation(t *testing.T) {
 	assert := assert.New(t)
 	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
@@ -142,22 +142,30 @@ func TestNoWritesAfterSeal(t *testing.T) {
 	})
 	assert.NoError(err)
 
-	assert.NoError(sb.Seal())
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.Equal(sb.Pack(data), ErrBoxIsSealed)
+	assert.NoError(sb.Pack(data))
+	_, err = sb.CreateManifests("test", 1)
+	assert.NoError(err)
+	assert.Equal(sb.Pack(data), ErrBoxIsShipped)
 }
 
-func TestCantCreateManifestsWhenBoxUnsealed(t *testing.T) {
+func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
 	assert := assert.New(t)
 	sb, err := NewS3Box(NewS3BoxOptions{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
 	})
+	assert.NoError(err)
+
+	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
+	assert.NoError(sb.Pack(data))
+
+	_, err = sb.CreateManifests("test", 1)
 	assert.NoError(err)
 
 	_, err = sb.CreateManifests("test", 1)
-	assert.Equal(err, ErrBoxNotSealed)
+	assert.Equal(err, ErrBoxIsShipped)
 }
 
 func TestCreatesCorrectNumberOfManifests(t *testing.T) {
@@ -177,8 +185,6 @@ func TestCreatesCorrectNumberOfManifests(t *testing.T) {
 		sb.fileLocations = append(sb.fileLocations, file)
 	}
 
-	assert.NoError(sb.Seal())
-
 	manifestKey := "test"
 	nManifests := 5
 	manifestLocations, err := sb.CreateManifests(manifestKey, nManifests)
@@ -187,9 +193,9 @@ func TestCreatesCorrectNumberOfManifests(t *testing.T) {
 
 	// If the number of manifests is greater than the number of files,
 	// return only that number of manifests.
+	sb.isShipped = false // Hack to override erroring if the box has already shipped
 	nManifests = 100
 	manifestLocations, err = sb.CreateManifests(manifestKey, nManifests)
 	assert.NoError(err)
 	assert.Equal(nFiles, len(manifestLocations))
-
 }
