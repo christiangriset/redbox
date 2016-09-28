@@ -106,6 +106,9 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	if options.AWSKey == "" && options.AWSPassword == "" && options.AWSToken == "" {
 		awsCreds = credentials.NewEnvCredentials()
 	} else {
+		if options.AWSKey == "" || options.AWSPassword == "" {
+			return nil, fmt.Errorf("Must provide both and AWSKey and AWSPassword")
+		}
 		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
 	}
 	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
