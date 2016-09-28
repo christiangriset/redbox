@@ -49,9 +49,6 @@ type S3Box struct {
 	// timestamp tracks the time a box was created or reset
 	timestamp time.Time
 
-	// fileNumber indicates the number of s3 files which have currently been created
-	fileNumber int
-
 	// fileLocations stores the s3 files already created
 	fileLocations []string
 
@@ -126,7 +123,6 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 func (sb *S3Box) NextBox() {
 	sb.Lock()
 	sb.timestamp = time.Now()
-	sb.fileNumber = 0
 	sb.fileLocations = []string{}
 	sb.bufferedData = []byte{}
 	sb.isSealed = false
@@ -177,11 +173,11 @@ func (sb *S3Box) dumpToS3() error {
 	if len(sb.bufferedData) == 0 {
 		return nil
 	}
-	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), sb.fileNumber)
+	fileNumber := len(sb.fileLocations)
+	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), fileNumber)
 	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
 		return err
 	}
-	sb.fileNumber++
 	sb.bufferedData = []byte{}
 	fileName := fmt.Sprintf("s3://%s/%s", sb.s3Bucket, fileKey)
 	sb.fileLocations = append(sb.fileLocations, fileName)

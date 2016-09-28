@@ -100,7 +100,6 @@ func TestCorrectNumberOfS3Writes(t *testing.T) {
 	for i := 0; i < nFiles; i++ {
 		assert.NoError(sb.Pack(data))
 	}
-	assert.Equal(sb.fileNumber, nFiles)
 	assert.Equal(len(sb.fileLocations), nFiles)
 }
 
@@ -131,7 +130,6 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	}()
 	assert.Error(sb.Pack(data))
 	assert.Equal(len(sb.bufferedData), len(data)+1)
-	assert.Equal(sb.fileNumber, 0)
 	assert.Equal(len(sb.fileLocations), 0)
 }
 
