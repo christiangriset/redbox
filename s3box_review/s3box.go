@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultBufferSize is set to 10MB
-	DefaultBufferSize = 10000000
+	DefaultBufferSize = 10 * 1000 * 1000
 )
 
 var (
