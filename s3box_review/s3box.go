@@ -119,16 +119,6 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	}, nil
 }
 
-// NextBox gives you a new box, forgetting everything about previously packaged data
-func (sb *S3Box) NextBox() {
-	sb.Lock()
-	sb.timestamp = time.Now()
-	sb.fileLocations = []string{}
-	sb.bufferedData = []byte{}
-	sb.isSealed = false
-	sb.Unlock()
-}
-
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
 // Any error will leave the buffer unmodified.
 func (sb *S3Box) Pack(data []byte) error {
