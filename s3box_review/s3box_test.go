@@ -104,22 +104,6 @@ func TestCorrectNumberOfS3Writes(t *testing.T) {
 	assert.Equal(len(sb.fileLocations), nFiles)
 }
 
-func TestInvalidPacks(t *testing.T) {
-	assert := assert.New(t)
-	sb, err := NewS3Box(NewS3BoxOptions{
-		S3Bucket:    s3Bucket,
-		AWSKey:      awsKey,
-		AWSPassword: awsPassword,
-	})
-	assert.NoError(err)
-
-	stringData := []byte("Some string")
-	assert.Error(sb.Pack(stringData))
-
-	jsonArray := []byte("[{\"k1\": \"v1\"},{\"k2\":\"v2\"}\"]")
-	assert.Equal(sb.Pack(jsonArray), ErrInvalidJSONInput)
-}
-
 func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	assert := assert.New(t)
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
@@ -137,12 +121,6 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 
 	assert.NoError(sb.Pack(data))
 	assert.Equal(len(sb.bufferedData), len(data)+1)
-
-	invalidData := []byte("Some string")
-	assert.Error(sb.Pack(invalidData))
-	assert.Equal(len(sb.bufferedData), len(data)+1)
-	assert.Equal(sb.fileNumber, 0)
-	assert.Equal(len(sb.fileLocations), 0)
 
 	// Since we'll be packing data larger than the buffer size, this will trigger
 	// a write. And since this write will fail the pack will fail and the data

@@ -27,9 +27,6 @@ var (
 
 	// ErrBoxNotSealed signals an operation which can't occur when a box is not sealed.
 	ErrBoxNotSealed = fmt.Errorf("Cannot perform action when box is not sealed.")
-
-	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
-	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 )
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
@@ -141,12 +138,6 @@ func (sb *S3Box) NextBox() {
 func (sb *S3Box) Pack(data []byte) error {
 	if sb.isSealed {
 		return ErrBoxIsSealed
-	}
-
-	// If the bytes aren't in JSON format, return an error
-	var tempMap map[string]interface{}
-	if err := json.Unmarshal(data, &tempMap); err != nil {
-		return ErrInvalidJSONInput
 	}
 
 	sb.Lock()
