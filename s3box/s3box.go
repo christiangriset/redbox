@@ -15,7 +15,7 @@ import (
 
 const (
 	// DefaultBufferSize is set to 10MB
-	DefaultBufferSize = 10000000
+	DefaultBufferSize = 10 * 1000 * 1000
 )
 
 var (
@@ -23,13 +23,7 @@ var (
 	ErrS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
 
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
-	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
-
-	// ErrBoxNotSealed signals an operation which can't occur when a box is not sealed.
-	ErrBoxNotSealed = fmt.Errorf("Cannot perform action when box is not sealed.")
-
-	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
-	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
+	ErrBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
 )
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
@@ -52,14 +46,12 @@ type S3Box struct {
 	// timestamp tracks the time a box was created or reset
 	timestamp time.Time
 
-	// fileNumber indicates the number of s3 files which have currently been created
-	fileNumber int
-
 	// fileLocations stores the s3 files already created
 	fileLocations []string
 
-	// isSealed indicates whether writes are currently allows to the buffer
-	isSealed bool
+	// isShipped indicates whether we've already shipped the box, preventing
+	// any further action
+	isShipped bool
 }
 
 // NewS3BoxOptions is the expected input for creating a new S3Box.
@@ -112,6 +104,9 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	if options.AWSKey == "" && options.AWSPassword == "" && options.AWSToken == "" {
 		awsCreds = credentials.NewEnvCredentials()
 	} else {
+		if options.AWSKey == "" || options.AWSPassword == "" {
+			return nil, fmt.Errorf("Must provide both and AWSKey and AWSPassword")
+		}
 		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
 	}
 	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
@@ -125,43 +120,24 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	}, nil
 }
 
-// NextBox gives you a new box, forgetting everything about previously packaged data
-func (sb *S3Box) NextBox() {
-	sb.Lock()
-	sb.timestamp = time.Now()
-	sb.fileNumber = 0
-	sb.fileLocations = []string{}
-	sb.bufferedData = []byte{}
-	sb.isSealed = false
-	sb.Unlock()
-}
-
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
 // Any error will leave the buffer unmodified.
 func (sb *S3Box) Pack(data []byte) error {
-	if sb.isSealed {
-		return ErrBoxIsSealed
-	}
-
-	// If the bytes aren't in JSON format, return an error
-	var tempMap map[string]interface{}
-	if err := json.Unmarshal(data, &tempMap); err != nil {
-		return ErrInvalidJSONInput
+	if sb.isShipped {
+		return ErrBoxIsShipped
 	}
 
 	sb.Lock()
+	defer sb.Unlock()
 	oldBuffer := sb.bufferedData // If write fails, keep buffered data unchanged
 	data = append(data, '\n')    // Append a new line for text-editor readability
 	sb.bufferedData = append(sb.bufferedData, data...)
-	sb.Unlock()
 
 	// If we're hitting capacity, dump the results to s3.
 	// If shipping to s3 errors, don't modify the buffer.
 	if len(sb.bufferedData) > sb.bufferSize {
 		if err := sb.dumpToS3(); err != nil {
-			sb.Lock()
 			sb.bufferedData = oldBuffer
-			sb.Unlock()
 			return err
 		}
 	}
@@ -169,43 +145,20 @@ func (sb *S3Box) Pack(data []byte) error {
 	return nil
 }
 
-// Seal closes writes and flushes any buffered data to s3.
-// Once the box is sealed, you can no longer write to this box.
-// Use NextBox to create a new box if you'd like to continue packing.
-func (sb *S3Box) Seal() error {
-	if err := sb.dumpToS3(); err != nil {
-		return err
-	}
-
-	sb.isSealed = true
-	return nil
-}
-
-// dumpToS3 ships buffered  data to s3 and increments the index with a clean slate of running data
-func (sb *S3Box) dumpToS3() error {
-	if len(sb.bufferedData) == 0 {
-		return nil
-	}
-	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), sb.fileNumber)
-	sb.Lock()
-	defer sb.Unlock()
-	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
-		return err
-	}
-	sb.fileNumber++
-	sb.bufferedData = []byte{}
-	fileName := fmt.Sprintf("s3://%s/%s", sb.s3Bucket, fileKey)
-	sb.fileLocations = append(sb.fileLocations, fileName)
-	return nil
-}
-
 // CreateManifests takes in a manifest key and splits the s3 files across the
 // input number of manifests. If nManifests is greater than the number of generated
 // s3 files, you'll only receive manifests back point
 func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
-	if !sb.isSealed {
-		return nil, ErrBoxNotSealed
+	sb.Lock()
+	defer sb.Unlock()
+	if sb.isShipped {
+		return nil, ErrBoxIsShipped
 	}
+
+	if err := sb.dumpToS3(); err != nil {
+		return nil, err
+	}
+
 	type entry struct {
 		URL       string `json:"url"`
 		Mandatory bool   `json:"mandatory"`
@@ -239,5 +192,22 @@ func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string,
 		log.Printf("Wrote manifest to s3://%s/%s\n", sb.s3Bucket, manifestName)
 	}
 
+	sb.isShipped = true
 	return manifestLocations, nil
+}
+
+// dumpToS3 ships buffered  data to s3 and increments the index with a clean slate of running data
+func (sb *S3Box) dumpToS3() error {
+	if len(sb.bufferedData) == 0 {
+		return nil
+	}
+	fileNumber := len(sb.fileLocations)
+	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), fileNumber)
+	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
+		return err
+	}
+	sb.bufferedData = []byte{}
+	fileName := fmt.Sprintf("s3://%s/%s", sb.s3Bucket, fileKey)
+	sb.fileLocations = append(sb.fileLocations, fileName)
+	return nil
 }

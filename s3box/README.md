@@ -8,18 +8,16 @@
     - [NewS3BoxOptions](#news3boxoptions)
   - [S3Box - The Methods](#s3box---the-methods)
     - [Pack](#pack)
-    - [Seal](#seal)
     - [CreateManifests](#createmanifests)
-    - [NextBox](#nextbox)
 - [Example](#example)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # S3Box
 
-Library aiding data transport to s3 through straighforward configuration and intuitive methods (Pack, Seal and CreateManifest).
+Library aiding data transport to s3 through straighforward configuration and intuitive methods (Packand CreateManifest).
 
-The core under-the-hood functionality is the streaming of (JSON formatted) data into s3 while managing consistent file sizes and easy creation of manifests.
+The core under-the-hood functionality is the streaming of data into s3 while managing consistent file sizes and easy creation of manifests.
 
 See both below and the [the godocs](https://godoc.org/github.com/cgclever/redbox/s3box) for API documentation.
 
@@ -57,36 +55,19 @@ The expected usecase around controlling BufferSize is for worker memory manageme
 Pack buffers the data. Once the buffer grows larger than it's maximum size (10MB by default)
 the data is gziped and streamed to s3.
 
-Currently Pack is a single row operation which *only* accepts JSONifiable inputs, i.e. those marshalable into a map.
-
 Pack is concurrency safe.
-
-### Seal
-
-`func Seal() error`
-
-Seal flushes any buffered data to s3 and prevents further Packing.
 
 ### CreateManifests
 
 `func CreateManifests(manifestKey string, numManifests int) ([]string, error)`
 
-Once the package is sealed (and thus all data is flushed to s3), this evenly distributes
-all generated data files into a number of manifest files. These manifests are also uploaded
-to s3.
+This evenly distributes all generated data files into the specified number of manifest files, which are then uploaded to s3.
 
 The user can then set off their own custom COPY commands utilizing these manifests.
 
 **Note1**: The input should *not* be the full s3 path. The configuration will already include the bucket and create the full path for you. This helps prevent cases where a different bucket from the input configuration is supplied.
 
 **Note2**: If the number of generated data files is less than `numManifests`, the return will be a number of manifests equal to the number of data files. 
-
-### NextBox
-
-`func NextBox()`
-
-NextBox gives you a new box, forgetting everything about previously packaged data.
-
 
 # Example
 ```
