@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/cgclever/redbox/s3box"
 )
+
+const defaultNManifests = 4
 
 var (
 	// ErrSendingInProgress captures operations when a send is in progress.
@@ -37,19 +40,30 @@ type Redbox struct {
 	// awsPassword is the AWS SECRET ACCESS KEY to the s3Bucket
 	awsPassword string
 
-	// s3Box manages the transport of data to Redshift.
+	// s3Bucket is the bucket storing our data
+	s3Bucket string
+
+	// s3Region is the location of the destination s3Bucket
+	s3Region string
+
+	// nManifests is the number of manifests to split streamed data into.
+	nManifests int
+
+	// s3Box manages the transport of data to Redshift
 	s3Box *s3box.S3Box
 
 	// redshift is the direct redshift connection
 	redshift Redshift
 
-	// SendingInProgress indicates if a send is in progress
-	SendingInProgress bool
+	// sendingInProgress indicates if a send is in progress
+	sendingInProgress bool
 
 	// truncate indicates if we should truncate the destination table
 	truncate bool
 
-	// options remembers the options used to configure the instance
+	// options remembers the options used to configure the instance.
+	// This is used for establishing a new s3Box after data has been
+	// shipped.
 	options NewRedboxOptions
 }
 
@@ -70,8 +84,19 @@ type NewRedboxOptions struct {
 	// AWSPassword is the AWS SECRET ACCESS KEY
 	AWSPassword string
 
-	// BufferSize is the maximum size of data we're willing to buffer before creating an s3 file
+	// BufferSize is the maximum size of data we're willing to buffer
+	// before creating an s3 file
 	BufferSize int
+
+	// NManifests is an optional parameter choosing how many manifests
+	// to break data into. When data transfer gets to several gigabytes
+	// the user should experiment with larger manifest numbers to prevent
+	// timeouts.
+	//
+	// Note: This number isn't attempted to be autocalculated as
+	// different cluster configurations can handle different influxes
+	// of data. However the number defaults to 4.
+	NManifests int
 
 	// Truncate indicates if we should truncate the destination table
 	Truncate bool
@@ -102,7 +127,11 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		AWSPassword: awsPassword,
 		BufferSize:  options.BufferSize,
 	})
+	if err != nil {
+		return nil, err
+	}
 
+	s3Region, err := s3box.GetRegionForBucket(options.S3Bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +141,17 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		return nil, err
 	}
 
+	nManifests := defaultNManifests
+	if options.NManifests > 1 {
+		nManifests = options.NManifests
+	}
+
 	return &Redbox{
 		schema:      options.Schema,
 		table:       options.Table,
+		s3Bucket:    options.S3Bucket,
+		s3Region:    s3Region,
+		nManifests:  nManifests,
 		awsKey:      awsKey,
 		awsPassword: awsPassword,
 		s3Box:       s3Box,
@@ -127,6 +164,10 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
 // but will support CSV inputs in the future.
 func (rb *Redbox) Pack(row []byte) error {
+	if rb.IsSendingInProgress() {
+		return ErrSendingInProgress
+	}
+
 	var tempMap map[string]interface{}
 	if err := json.Unmarshal(row, &tempMap); err != nil {
 		return ErrInvalidJSONInput
@@ -135,15 +176,96 @@ func (rb *Redbox) Pack(row []byte) error {
 }
 
 // Send ships written data to the destination Redshift table.
+// While a send is in progress, no other operations are permitted.
+// If a send succeeds a new s3Box will be created, allowing for further
+// packing.
 func (rb *Redbox) Send() error {
-	if rb.SendingInProgress {
+	if rb.IsSendingInProgress() {
 		return ErrSendingInProgress
 	}
 
 	// Kick off the s3-to-Redshift job
-	rb.SendingInProgress = true
-	// To be filled in
-	rb.SendingInProgress = false
+	rb.setSendingInProgress(true)
+	defer func() {
+		rb.setSendingInProgress(false)
+	}()
 
+	manifestSlug := fmt.Sprintf("%s_%s", rb.schema, rb.table)
+	manifests, err := rb.s3Box.CreateManifests(manifestSlug, rb.nManifests)
+	if err != nil {
+		return err
+	}
+
+	if err := rb.copyToRedshift(manifests); err != nil {
+		return err
+	}
+
+	return rb.refreshS3Box()
+}
+
+// manifestSlug defines a convention for the slug of each manifest file.
+func (rb *Redbox) manifestSlug() string {
+	return fmt.Sprintf("%s_%s_%s", rb.schema, rb.table, time.Now().Format(time.RFC3339))
+}
+
+// copyToRedshift transports data pointed to by the manifests into Redshift.
+// If the truncate flag is present we clear the destination table first.
+func (rb *Redbox) copyToRedshift(manifests []string) error {
+	tx, err := rb.redshift.Begin()
+	if err != nil {
+		return err
+	}
+
+	if rb.truncate {
+		delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", rb.schema, rb.table)
+		if _, err := tx.Exec(delStmt); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	for _, manifest := range manifests {
+		copyStmt := rb.copyStatement(manifest)
+		if _, err := tx.Exec(copyStmt); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// copyStatment generates the COPY statement for the given manifest and Redbox configuration
+func (rb *Redbox) copyStatement(manifest string) string {
+	manifestURL := fmt.Sprintf("s3://%s/%s", rb.s3Bucket, manifest)
+	copy := fmt.Sprintf("COPY \"%s\".\"%s\" FROM '%s' MANIFEST REGION '%s'", rb.schema, rb.table, manifestURL, rb.s3Region)
+	dataFormat := "GZIP JSON 'auto'"
+	options := "TIMEFORMAT 'auto' TRUNCATECOLUMNS STATUPDATE ON COMPUPDATE ON"
+	creds := fmt.Sprintf("CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'", rb.awsKey, rb.awsPassword)
+	return fmt.Sprintf("%s %s %s %s", copy, dataFormat, options, creds)
+}
+
+// refreshS3Box establishes a brand new s3Box for packing and tracking more data.
+func (rb *Redbox) refreshS3Box() error {
+	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
+		S3Bucket:    rb.options.S3Bucket,
+		AWSKey:      rb.awsKey,
+		AWSPassword: rb.awsPassword,
+		BufferSize:  rb.options.BufferSize,
+	})
+	if err != nil {
+		return fmt.Errorf("Error refreshing the s3Box: %s", err)
+	}
+
+	rb.s3Box = s3Box
 	return nil
+}
+
+func (rb *Redbox) setSendingInProgress(inProgress bool) {
+	rb.sendingInProgress = inProgress
+}
+
+// IsSendingInProgress publically exposes whether a send is in progress.
+func (rb *Redbox) IsSendingInProgress() bool {
+	return rb.sendingInProgress
 }
