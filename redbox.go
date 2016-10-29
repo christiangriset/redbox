@@ -3,6 +3,7 @@ package redbox
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/cgclever/redbox/s3box"
@@ -30,8 +31,17 @@ type Redbox struct {
 	// table is the table name of the destination
 	table string
 
+	// awsKey is the AWS ACCESS KEY ID to the s3bucket
+	awsKey string
+
+	// awsPassword is the AWS SECRET ACCESS KEY to the s3Bucket
+	awsPassword string
+
 	// s3Box manages the transport of data to Redshift.
-	s3Box s3box.S3Box
+	s3Box *s3box.S3Box
+
+	// redshift is the direct redshift connection
+	redshift Redshift
 
 	// SendingInProgress indicates if a send is in progress
 	SendingInProgress bool
@@ -40,7 +50,7 @@ type Redbox struct {
 	truncate bool
 
 	// options remembers the options used to configure the instance
-	options NewReboxOptions
+	options NewRedboxOptions
 }
 
 // NewRedboxOptions is the expected input for creating a new Redbox
@@ -60,28 +70,36 @@ type NewRedboxOptions struct {
 	// AWSPassword is the AWS SECRET ACCESS KEY
 	AWSPassword string
 
-	// AWSToken is the AWS SESSION TOKEN
-	AWSToken string
-
 	// BufferSize is the maximum size of data we're willing to buffer before creating an s3 file
 	BufferSize int
 
 	// Truncate indicates if we should truncate the destination table
 	Truncate bool
+
+	// RedshiftConfiguration specifies the destination Redshift configuration
+	RedshiftConfiguration RedshiftConfiguration
 }
 
 // NewRedbox creates a new Redbox given the input options, but without the requirement of a destination config.
-// Errors occur if there's an invalid input or if there's difficulty setting up an s3 connection.
+// Errors occur if there's an invalid input or if there's difficulty setting up either an s3 or redshift connection.
 func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
 		return nil, ErrIncompleteArgs
 	}
 
+	awsKey := options.AWSKey
+	if awsKey == "" {
+		awsKey = os.Getenv("AWS_ACCESS_KEY_ID")
+	}
+	awsPassword := options.AWSPassword
+	if awsPassword == "" {
+		awsPassword = os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+
 	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
 		S3Bucket:    options.S3Bucket,
-		AWSKey:      options.AWSKey,
-		AWSPassword: options.AWSPassword,
-		AWSToken:    options.AWSToken,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
 		BufferSize:  options.BufferSize,
 	})
 
@@ -89,35 +107,43 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		return nil, err
 	}
 
+	redshift, err := options.RedshiftConfiguration.RedshiftConnection()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Redbox{
-		schema:   options.Schema,
-		table:    options.Table,
-		s3Box:    s3Box,
-		truncate: options.Truncate,
-		options:  options,
+		schema:      options.Schema,
+		table:       options.Table,
+		awsKey:      awsKey,
+		awsPassword: awsPassword,
+		s3Box:       s3Box,
+		redshift:    redshift,
+		truncate:    options.Truncate,
+		options:     options,
 	}, nil
 }
 
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
 // but will support CSV inputs in the future.
-func (rp *Redbox) Pack(row []byte) error {
+func (rb *Redbox) Pack(row []byte) error {
 	var tempMap map[string]interface{}
 	if err := json.Unmarshal(row, &tempMap); err != nil {
 		return ErrInvalidJSONInput
 	}
-	return s3Box.Pack(row)
+	return rb.s3Box.Pack(row)
 }
 
 // Send ships written data to the destination Redshift table.
-func (rp *Redbox) Send() error {
-	if rp.SendingInProgress {
+func (rb *Redbox) Send() error {
+	if rb.SendingInProgress {
 		return ErrSendingInProgress
 	}
 
 	// Kick off the s3-to-Redshift job
-	rp.SendingInProgress = true
+	rb.SendingInProgress = true
 	// To be filled in
-	rp.SendingInProgress = false
+	rb.SendingInProgress = false
 
 	return nil
 }
