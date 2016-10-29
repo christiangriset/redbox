@@ -60,11 +60,6 @@ type Redbox struct {
 
 	// truncate indicates if we should truncate the destination table
 	truncate bool
-
-	// options remembers the options used to configure the instance.
-	// This is used for establishing a new s3Box after data has been
-	// shipped.
-	options NewRedboxOptions
 }
 
 // NewRedboxOptions is the expected input for creating a new Redbox
@@ -157,7 +152,6 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		s3Box:       s3Box,
 		redshift:    redshift,
 		truncate:    options.Truncate,
-		options:     options,
 	}, nil
 }
 
@@ -247,12 +241,7 @@ func (rb *Redbox) copyStatement(manifest string) string {
 
 // refreshS3Box establishes a brand new s3Box for packing and tracking more data.
 func (rb *Redbox) refreshS3Box() error {
-	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
-		S3Bucket:    rb.options.S3Bucket,
-		AWSKey:      rb.awsKey,
-		AWSPassword: rb.awsPassword,
-		BufferSize:  rb.options.BufferSize,
-	})
+	s3Box, err := rb.s3Box.FreshBox()
 	if err != nil {
 		return fmt.Errorf("Error refreshing the s3Box: %s", err)
 	}

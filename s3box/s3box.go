@@ -52,6 +52,10 @@ type S3Box struct {
 	// isShipped indicates whether we've already shipped the box, preventing
 	// any further action
 	isShipped bool
+
+	// options stores the options used to create the s3box.
+	// This is used for easy creation of an identical s3box.
+	options NewS3BoxOptions
 }
 
 // NewS3BoxOptions is the expected input for creating a new S3Box.
@@ -61,6 +65,12 @@ type NewS3BoxOptions struct {
 	// S3Bucket is the destination s3 bucket.
 	// This is required.
 	S3Bucket string
+
+	// S3Region is the region of the s3 bucket.
+	// Optional: If not provided, the region is
+	// looked up via the AWS API. However if provided,
+	// an S3Box can be reestablished without error.
+	S3Region string
 
 	// AWSKey is the AWS ACCESS KEY ID.
 	// By default grabs from your environment.
@@ -94,9 +104,13 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	}
 
 	// Setup s3 handler and aws configuration. If no creds are explicitly provided, they'll be grabbed from the environment.
-	region, err := GetRegionForBucket(options.S3Bucket)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
+
+	if options.S3Region == "" {
+		region, err := GetRegionForBucket(options.S3Bucket)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
+		}
+		options.S3Region = region
 	}
 
 	// If AWS creds were provided use those, otherwise grab them from your environment
@@ -109,7 +123,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 		}
 		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
 	}
-	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
+	awsConfig := aws.NewConfig().WithRegion(options.S3Region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
 	awsSession := session.New()
 
 	return &S3Box{
@@ -117,7 +131,13 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 		timestamp:  time.Now(),
 		s3Handler:  s3.New(awsSession, awsConfig),
 		bufferSize: bufferSize,
+		options:    options,
 	}, nil
+}
+
+// FreshBox returns an S3Box with the same configuration but with no memory of data.
+func (sb *S3Box) FreshBox() (S3BoxAPI, error) {
+	return NewS3Box(sb.options)
 }
 
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
