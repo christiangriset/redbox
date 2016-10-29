@@ -35,7 +35,7 @@ func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte, gzip bo
 
 func TestMain(m *testing.M) {
 	// Assume successful s3 calls by default
-	getRegionForBucket = getRegionForBucketSuccess
+	GetRegionForBucket = getRegionForBucketSuccess
 	writeToS3 = writeToS3Success
 
 	os.Exit(m.Run())

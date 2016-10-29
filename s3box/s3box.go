@@ -94,7 +94,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	}
 
 	// Setup s3 handler and aws configuration. If no creds are explicitly provided, they'll be grabbed from the environment.
-	region, err := getRegionForBucket(options.S3Bucket)
+	region, err := GetRegionForBucket(options.S3Bucket)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
 	}
