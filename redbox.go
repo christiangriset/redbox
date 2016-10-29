@@ -50,7 +50,7 @@ type Redbox struct {
 	nManifests int
 
 	// s3Box manages the transport of data to Redshift
-	s3Box *s3box.S3Box
+	s3Box s3box.S3BoxAPI
 
 	// redshift is the direct redshift connection
 	redshift Redshift
