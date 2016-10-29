@@ -10,14 +10,17 @@ import (
 // defaultConnectionTimeout is the default timeout, in seconds, for attempting to connect to Redshift
 const defaultConnectionTimeout = 300
 
+// Transaction interfaces a SQL transaction
+type Transaction interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Commit() error
+	Rollback() error
+}
+
 // Redshift represents an interface over the SQL methods
 type Redshift interface {
 	Close() error
-	Begin() (*sql.Tx, error)
-	Prepare(query string) (*sql.Stmt, error)
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
+	Begin() (Transaction, error)
 }
 
 // RedshiftConfiguration interfaces a configuration for creating a Redshift object
