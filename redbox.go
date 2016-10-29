@@ -1,6 +1,7 @@
 package redbox
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -53,7 +54,7 @@ type Redbox struct {
 	s3Box s3box.S3BoxAPI
 
 	// redshift is the direct redshift connection
-	redshift Redshift
+	redshift *sql.DB
 
 	// sendingInProgress indicates if a send is in progress
 	sendingInProgress bool

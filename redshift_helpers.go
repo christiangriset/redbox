@@ -10,26 +10,8 @@ import (
 // defaultConnectionTimeout is the default timeout, in seconds, for attempting to connect to Redshift
 const defaultConnectionTimeout = 300
 
-// Transaction interfaces a SQL transaction
-type Transaction interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Commit() error
-	Rollback() error
-}
-
-// Redshift represents an interface over the SQL methods
-type Redshift interface {
-	Close() error
-	Begin() (Transaction, error)
-}
-
-// RedshiftConfiguration interfaces a configuration for creating a Redshift object
-type RedshiftConfiguration interface {
-	RedshiftConnection() (Redshift, error)
-}
-
 // RedshiftConfig specifies the connection to a Redshift Database
-type PostgresRedshiftConfiguration struct {
+type RedshiftConfiguration struct {
 	Host              string
 	Port              string
 	User              string
@@ -39,7 +21,7 @@ type PostgresRedshiftConfiguration struct {
 }
 
 // RedshiftConnection returns a direct redshift connection
-func (rc *PostgresRedshiftConfiguration) RedshiftConnection() (*sql.DB, error) {
+func (rc *RedshiftConfiguration) RedshiftConnection() (*sql.DB, error) {
 	connectionTimeout := defaultConnectionTimeout
 	if rc.ConnectionTimeout > 0 {
 		connectionTimeout = rc.ConnectionTimeout
