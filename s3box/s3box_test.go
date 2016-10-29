@@ -15,10 +15,11 @@ const (
 	s3Bucket    = "test-bucket"
 	awsKey      = "Key"
 	awsPassword = "Pass"
+	s3Region    = "us-west-1"
 )
 
 func getRegionForBucketSuccess(bucket string) (string, error) {
-	return "Success", nil
+	return s3Region, nil
 }
 
 func getRegionForBucketFail(bucket string) (string, error) {
@@ -50,6 +51,45 @@ func TestSuccessfulBoxCreation(t *testing.T) {
 		AWSPassword: awsPassword,
 	})
 	assert.NoError(err)
+}
+
+func TestDontAttemptToGetRegionIfProvided(t *testing.T) {
+	// We shouldn't error in creating an S3Box if getting the region fails.
+	GetRegionForBucket = getRegionForBucketFail
+	defer func() {
+		GetRegionForBucket = getRegionForBucketSuccess
+	}()
+
+	assert := assert.New(t)
+	// We should be able to successfully create a box with both complete and incomplete configurations.
+	_, err := NewS3Box(NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		S3Region:    s3Region,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	})
+	assert.NoError(err)
+}
+
+func TestAWSRegionIsRememberedOnceDetermined(t *testing.T) {
+	assert := assert.New(t)
+
+	inputOptions := NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	}
+	// We should be able to successfully create a box with both complete and incomplete configurations.
+	sb, err := NewS3Box(inputOptions)
+	assert.NoError(err)
+
+	expectedOptions := NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		S3Region:    s3Region,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	}
+	assert.Equal(sb.options, expectedOptions)
 }
 
 func TestUnsuccessfulBoxCreation(t *testing.T) {
