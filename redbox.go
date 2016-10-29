@@ -1,6 +1,7 @@
 package redbox
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -97,10 +98,14 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	}, nil
 }
 
-// Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
-// Any error will leave the buffer unmodified.
-func (rp *Redbox) Pack(data []byte) error {
-	return nil
+// Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
+// but will support CSV inputs in the future.
+func (rp *Redbox) Pack(row []byte) error {
+	var tempMap map[string]interface{}
+	if err := json.Unmarshal(row, &tempMap); err != nil {
+		return ErrInvalidJSONInput
+	}
+	return s3Box.Pack(row)
 }
 
 // Send ships written data to the destination Redshift table.
