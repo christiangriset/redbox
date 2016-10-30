@@ -203,6 +203,9 @@ func (rb *Redbox) Send() error {
 	if err != nil {
 		return err
 	}
+	if len(manifests) == 0 { // If no data was written, there's nothing to ship.
+		return nil
+	}
 
 	if err := rb.copyToRedshift(manifests); err != nil {
 		return err
