@@ -10,7 +10,7 @@ import (
 // defaultConnectionTimeout is the default timeout, in seconds, for attempting to connect to Redshift
 const defaultConnectionTimeout = 300
 
-// RedshiftConfig specifies the connection to a Redshift Database
+// RedshiftConfiguration specifies the connection to a Redshift Database
 type RedshiftConfiguration struct {
 	Host              string
 	Port              string

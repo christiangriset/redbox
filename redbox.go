@@ -74,6 +74,10 @@ type NewRedboxOptions struct {
 	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket.
 	S3Bucket string
 
+	// S3Region is the location of the S3Bucket. If not provided Redbox will
+	// location the region via the AWS API.
+	S3Region string
+
 	// AWSKey is the AWS ACCESS KEY ID
 	AWSKey string
 
@@ -101,33 +105,52 @@ type NewRedboxOptions struct {
 	RedshiftConfiguration RedshiftConfiguration
 }
 
-// NewRedbox creates a new Redbox given the input options, but without the requirement of a destination config.
-// Errors occur if there's an invalid input or if there's difficulty setting up either an s3 or redshift connection.
+// newRedboxGivenS3BoxAndRedshift returns an Redbox with given input s3Box and redshift inputs.
+func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) (*Redbox, error) {
+	return &Redbox{
+		schema:      options.Schema,
+		table:       options.Table,
+		s3Bucket:    options.S3Bucket,
+		s3Region:    options.S3Region,
+		nManifests:  options.NManifests,
+		awsKey:      options.AWSKey,
+		awsPassword: options.AWSPassword,
+		s3Box:       s3Box,
+		redshift:    redshift,
+		truncate:    options.Truncate,
+	}, nil
+
+}
+
+// NewRedbox creates a new Redbox given the input options.
+// Errors occur if there's an invalid input or if there's
+// difficulty setting up either an s3 or redshift connection.
 func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
 		return nil, ErrIncompleteArgs
 	}
 
-	awsKey := options.AWSKey
-	if awsKey == "" {
-		awsKey = os.Getenv("AWS_ACCESS_KEY_ID")
+	if options.AWSKey == "" {
+		options.AWSKey = os.Getenv("AWS_ACCESS_KEY_ID")
 	}
-	awsPassword := options.AWSPassword
-	if awsPassword == "" {
-		awsPassword = os.Getenv("AWS_SECRET_ACCESS_KEY")
+	if options.AWSPassword == "" {
+		options.AWSPassword = os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+
+	if options.S3Region == "" {
+		s3Region, err := s3box.GetRegionForBucket(options.S3Bucket)
+		if err != nil {
+			return nil, err
+		}
+		options.S3Region = s3Region
 	}
 
 	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
 		S3Bucket:    options.S3Bucket,
-		AWSKey:      awsKey,
-		AWSPassword: awsPassword,
+		AWSKey:      options.AWSKey,
+		AWSPassword: options.AWSPassword,
 		BufferSize:  options.BufferSize,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	s3Region, err := s3box.GetRegionForBucket(options.S3Bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -137,23 +160,11 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		return nil, err
 	}
 
-	nManifests := defaultNManifests
-	if options.NManifests > 1 {
-		nManifests = options.NManifests
+	if options.NManifests <= 0 {
+		options.NManifests = defaultNManifests
 	}
 
-	return &Redbox{
-		schema:      options.Schema,
-		table:       options.Table,
-		s3Bucket:    options.S3Bucket,
-		s3Region:    s3Region,
-		nManifests:  nManifests,
-		awsKey:      awsKey,
-		awsPassword: awsPassword,
-		s3Box:       s3Box,
-		redshift:    redshift,
-		truncate:    options.Truncate,
-	}, nil
+	return newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 }
 
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
