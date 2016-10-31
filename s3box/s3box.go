@@ -136,8 +136,9 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 }
 
 // FreshBox returns an S3Box with the same configuration but with no memory of data.
-func (sb *S3Box) FreshBox() (S3BoxAPI, error) {
-	return NewS3Box(sb.options)
+func (sb *S3Box) FreshBox() S3BoxAPI {
+	newBox, _ := NewS3Box(sb.options)
+	return newBox
 }
 
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.

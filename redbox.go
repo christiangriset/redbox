@@ -212,7 +212,8 @@ func (rb *Redbox) Send() error {
 	}
 
 	rb.manifests = append(rb.manifests, manifests...)
-	return rb.refreshS3Box()
+	rb.refreshS3Box()
+	return nil
 }
 
 // GetManifests returns the manifests which have been successfully
@@ -264,14 +265,8 @@ func (rb *Redbox) copyStatement(manifest string) string {
 }
 
 // refreshS3Box establishes a brand new s3Box for packing and tracking more data.
-func (rb *Redbox) refreshS3Box() error {
-	s3Box, err := rb.s3Box.FreshBox()
-	if err != nil {
-		return fmt.Errorf("Error refreshing the s3Box: %s", err)
-	}
-
-	rb.s3Box = s3Box
-	return nil
+func (rb *Redbox) refreshS3Box() {
+	rb.s3Box = rb.s3Box.FreshBox()
 }
 
 func (rb *Redbox) setSendingInProgress(inProgress bool) {
