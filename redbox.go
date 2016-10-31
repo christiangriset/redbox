@@ -109,7 +109,7 @@ type NewRedboxOptions struct {
 }
 
 // newRedboxGivenS3BoxAndRedshift returns an Redbox with given input s3Box and redshift inputs.
-func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) (*Redbox, error) {
+func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
 	return &Redbox{
 		schema:      options.Schema,
 		table:       options.Table,
@@ -121,8 +121,7 @@ func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxA
 		s3Box:       s3Box,
 		redshift:    redshift,
 		truncate:    options.Truncate,
-	}, nil
-
+	}
 }
 
 // NewRedbox creates a new Redbox given the input options.
@@ -167,7 +166,7 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		options.NManifests = defaultNManifests
 	}
 
-	return newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	return newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift), nil
 }
 
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
@@ -212,7 +211,7 @@ func (rb *Redbox) Send() error {
 	}
 
 	rb.manifests = append(rb.manifests, manifests...)
-	rb.refreshS3Box()
+	rb.newS3Box()
 	return nil
 }
 
@@ -264,8 +263,8 @@ func (rb *Redbox) copyStatement(manifest string) string {
 	return fmt.Sprintf("%s %s %s %s", copy, dataFormat, options, creds)
 }
 
-// refreshS3Box establishes a brand new s3Box for packing and tracking more data.
-func (rb *Redbox) refreshS3Box() {
+// newS3Box establishes a new s3Box for packing and tracking more data.
+func (rb *Redbox) newS3Box() {
 	rb.s3Box = rb.s3Box.FreshBox()
 }
 
