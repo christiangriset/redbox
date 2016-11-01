@@ -22,6 +22,9 @@ var (
 
 	// errInvalidJSONInput captures when the input data can't be marshalled into JSON.
 	errInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
+
+	// errBoxShipped captures invalid actions once the box has been shipped
+	errBoxShipped = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
 )
 
 // Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
@@ -58,6 +61,9 @@ type Redbox struct {
 
 	// shippingInProgress indicates if a send is in progress
 	shippingInProgress bool
+
+	// shipped indicates if the box has been shipped
+	shipped bool
 
 	// truncate indicates if we should truncate the destination table
 	truncate bool
@@ -169,6 +175,9 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
 // but will support CSV inputs in the future.
 func (rb *Redbox) Pack(row []byte) error {
+	if rb.isShipped() {
+		return errBoxShipped
+	}
 	if rb.isShippingInProgress() {
 		return errShippingInProgress
 	}
@@ -185,6 +194,9 @@ func (rb *Redbox) Pack(row []byte) error {
 // If a send succeeds a new s3Box will be created, allowing for further
 // packing.
 func (rb *Redbox) Ship() ([]string, error) {
+	if rb.isShipped() {
+		return nil, errBoxShipped
+	}
 	if rb.isShippingInProgress() {
 		return nil, errShippingInProgress
 	}
@@ -207,6 +219,7 @@ func (rb *Redbox) Ship() ([]string, error) {
 		return nil, err
 	}
 
+	rb.markShipped()
 	return manifests, nil
 }
 
@@ -258,9 +271,22 @@ func (rb *Redbox) setShippingInProgress(inProgress bool) {
 	rb.shippingInProgress = inProgress
 }
 
+func (rb *Redbox) markShipped() {
+	rb.Lock()
+	defer rb.Unlock()
+	rb.shipped = true
+}
+
 // isShippingInProgress exposes whether a send is in progress.
 func (rb *Redbox) isShippingInProgress() bool {
 	rb.Lock()
 	defer rb.Unlock()
 	return rb.shippingInProgress
+}
+
+// isShipped exposes whether the box has been shipped
+func (rb *Redbox) isShipped() bool {
+	rb.Lock()
+	defer rb.Unlock()
+	return rb.shipped
 }
