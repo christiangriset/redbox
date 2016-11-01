@@ -14,16 +14,16 @@ import (
 )
 
 const (
-	// DefaultBufferSize is set to 10MB
-	DefaultBufferSize = 10 * 1000 * 1000
+	// defaultBufferSize is set to 10MB
+	defaultBufferSize = 10 * 1000 * 1000
 )
 
 var (
-	// ErrS3BucketRequired signals an s3 bucket wasn't provided
-	ErrS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
+	// errS3BucketRequired signals an s3 bucket wasn't provided
+	errS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
 
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
-	ErrBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
+	errBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
 )
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
@@ -91,10 +91,10 @@ type NewS3BoxOptions struct {
 func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	// Check for required inputs and a valid destination config
 	if options.S3Bucket == "" {
-		return nil, ErrS3BucketRequired
+		return nil, errS3BucketRequired
 	}
 
-	bufferSize := DefaultBufferSize
+	bufferSize := defaultBufferSize
 	if options.BufferSize > 0 {
 		bufferSize = options.BufferSize
 	}
@@ -134,7 +134,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 // Any error will leave the buffer unmodified.
 func (sb *S3Box) Pack(data []byte) error {
 	if sb.isShipped {
-		return ErrBoxIsShipped
+		return errBoxIsShipped
 	}
 
 	sb.Lock()
@@ -162,7 +162,7 @@ func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string,
 	sb.Lock()
 	defer sb.Unlock()
 	if sb.isShipped {
-		return nil, ErrBoxIsShipped
+		return nil, errBoxIsShipped
 	}
 
 	if err := sb.dumpToS3(); err != nil {

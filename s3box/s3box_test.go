@@ -76,7 +76,7 @@ func TestUnsuccessfulBoxCreation(t *testing.T) {
 
 	// Error if we include a config without either a schema or table
 	_, err := NewS3Box(NewS3BoxOptions{})
-	assert.Equal(err, ErrS3BucketRequired)
+	assert.Equal(err, errS3BucketRequired)
 }
 
 func TestValidPacks(t *testing.T) {
@@ -165,7 +165,7 @@ func TestNoWritesAfterManifestCreation(t *testing.T) {
 	assert.NoError(sb.Pack(data))
 	_, err = sb.CreateManifests("test", 1)
 	assert.NoError(err)
-	assert.Equal(sb.Pack(data), ErrBoxIsShipped)
+	assert.Equal(sb.Pack(data), errBoxIsShipped)
 }
 
 func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
@@ -184,7 +184,7 @@ func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
 	assert.NoError(err)
 
 	_, err = sb.CreateManifests("test", 1)
-	assert.Equal(err, ErrBoxIsShipped)
+	assert.Equal(err, errBoxIsShipped)
 }
 
 func TestCreatesCorrectNumberOfManifests(t *testing.T) {

@@ -14,14 +14,14 @@ import (
 const defaultNManifests = 4
 
 var (
-	// ErrShippingInProgress captures operations when a send is in progress.
-	ErrShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
+	// errShippingInProgress captures operations when a send is in progress.
+	errShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
 
-	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
-	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
+	// errIncompleteArgs captures when not enough arguments are given for generating a new Redbox
+	errIncompleteArgs = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
 
-	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
-	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
+	// errInvalidJSONInput captures when the input data can't be marshalled into JSON.
+	errInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 )
 
 // Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
@@ -126,7 +126,7 @@ func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxA
 // difficulty setting up either an s3 or redshift connection.
 func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
-		return nil, ErrIncompleteArgs
+		return nil, errIncompleteArgs
 	}
 
 	if options.AWSKey == "" {
@@ -169,13 +169,13 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
 // but will support CSV inputs in the future.
 func (rb *Redbox) Pack(row []byte) error {
-	if rb.IsShippingInProgress() {
-		return ErrShippingInProgress
+	if rb.isShippingInProgress() {
+		return errShippingInProgress
 	}
 
 	var tempMap map[string]interface{}
 	if err := json.Unmarshal(row, &tempMap); err != nil {
-		return ErrInvalidJSONInput
+		return errInvalidJSONInput
 	}
 	return rb.s3Box.Pack(row)
 }
@@ -185,8 +185,8 @@ func (rb *Redbox) Pack(row []byte) error {
 // If a send succeeds a new s3Box will be created, allowing for further
 // packing.
 func (rb *Redbox) Ship() ([]string, error) {
-	if rb.IsShippingInProgress() {
-		return nil, ErrShippingInProgress
+	if rb.isShippingInProgress() {
+		return nil, errShippingInProgress
 	}
 
 	// Kick off the s3-to-Redshift job
@@ -258,8 +258,8 @@ func (rb *Redbox) setShippingInProgress(inProgress bool) {
 	rb.shippingInProgress = inProgress
 }
 
-// IsShippingInProgress publically exposes whether a send is in progress.
-func (rb *Redbox) IsShippingInProgress() bool {
+// isShippingInProgress exposes whether a send is in progress.
+func (rb *Redbox) isShippingInProgress() bool {
 	rb.Lock()
 	defer rb.Unlock()
 	return rb.shippingInProgress
