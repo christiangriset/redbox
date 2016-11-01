@@ -25,6 +25,9 @@ var (
 
 	// errBoxShipped captures invalid actions once the box has been shipped
 	errBoxShipped = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
+
+	// errNothingToShip captures when no data was ever written to s3
+	errNothingToShip = fmt.Errorf("Cannot perform send, no data was sent to s3.")
 )
 
 // Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
@@ -212,7 +215,7 @@ func (rb *Redbox) Ship() ([]string, error) {
 		return nil, err
 	}
 	if len(manifests) == 0 { // If no data was written, there's nothing to ship.
-		return nil, nil
+		return nil, errNothingToShip
 	}
 
 	if err := rb.copyToRedshift(manifests); err != nil {
