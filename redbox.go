@@ -50,9 +50,6 @@ type Redbox struct {
 	// nManifests is the number of manifests to split streamed data into.
 	nManifests int
 
-	// manifests tracks the manifests which have been successfully sent
-	manifests []string
-
 	// s3Box manages the transport of data to Redshift
 	s3Box s3box.S3BoxAPI
 
@@ -187,9 +184,9 @@ func (rb *Redbox) Pack(row []byte) error {
 // While a send is in progress, no other operations are permitted.
 // If a send succeeds a new s3Box will be created, allowing for further
 // packing.
-func (rb *Redbox) Send() error {
+func (rb *Redbox) Send() ([]string, error) {
 	if rb.IsSendingInProgress() {
-		return ErrSendingInProgress
+		return nil, ErrSendingInProgress
 	}
 
 	// Kick off the s3-to-Redshift job
@@ -200,25 +197,18 @@ func (rb *Redbox) Send() error {
 
 	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.nManifests)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(manifests) == 0 { // If no data was written, there's nothing to ship.
-		return nil
+		return nil, nil
 	}
 
 	if err := rb.copyToRedshift(manifests); err != nil {
-		return err
+		return nil, err
 	}
 
-	rb.manifests = append(rb.manifests, manifests...)
 	rb.newS3Box()
-	return nil
-}
-
-// GetManifests returns the manifests which have been successfully
-// copied into Redshift.
-func (rb *Redbox) GetManifests() []string {
-	return rb.manifests
+	return manifests, nil
 }
 
 // manifestSlug defines a convention for the slug of each manifest file.
