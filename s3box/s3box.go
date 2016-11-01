@@ -52,10 +52,6 @@ type S3Box struct {
 	// isShipped indicates whether we've already shipped the box, preventing
 	// any further action
 	isShipped bool
-
-	// options stores the options used to create the s3box.
-	// This is used for easy creation of an identical s3box.
-	options NewS3BoxOptions
 }
 
 // NewS3BoxOptions is the expected input for creating a new S3Box.
@@ -131,14 +127,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 		timestamp:  time.Now(),
 		s3Handler:  s3.New(awsSession, awsConfig),
 		bufferSize: bufferSize,
-		options:    options,
 	}, nil
-}
-
-// FreshBox returns an S3Box with the same configuration but with no memory of data.
-func (sb *S3Box) FreshBox() S3BoxAPI {
-	newBox, _ := NewS3Box(sb.options)
-	return newBox
 }
 
 // Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.

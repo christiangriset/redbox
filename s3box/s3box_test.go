@@ -71,27 +71,6 @@ func TestDontAttemptToGetRegionIfProvided(t *testing.T) {
 	assert.NoError(err)
 }
 
-func TestAWSRegionIsRememberedOnceDetermined(t *testing.T) {
-	assert := assert.New(t)
-
-	inputOptions := NewS3BoxOptions{
-		S3Bucket:    s3Bucket,
-		AWSKey:      awsKey,
-		AWSPassword: awsPassword,
-	}
-	// We should be able to successfully create a box with both complete and incomplete configurations.
-	sb, err := NewS3Box(inputOptions)
-	assert.NoError(err)
-
-	expectedOptions := NewS3BoxOptions{
-		S3Bucket:    s3Bucket,
-		S3Region:    s3Region,
-		AWSKey:      awsKey,
-		AWSPassword: awsPassword,
-	}
-	assert.Equal(sb.options, expectedOptions)
-}
-
 func TestUnsuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
 

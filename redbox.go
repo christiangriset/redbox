@@ -14,8 +14,8 @@ import (
 const defaultNManifests = 4
 
 var (
-	// ErrSendingInProgress captures operations when a send is in progress.
-	ErrSendingInProgress = fmt.Errorf("Cannot perform any action when sending is in progress.")
+	// ErrShippingInProgress captures operations when a send is in progress.
+	ErrShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
 
 	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
 	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
@@ -56,8 +56,8 @@ type Redbox struct {
 	// redshift is the direct redshift connection
 	redshift *sql.DB
 
-	// sendingInProgress indicates if a send is in progress
-	sendingInProgress bool
+	// shippingInProgress indicates if a send is in progress
+	shippingInProgress bool
 
 	// truncate indicates if we should truncate the destination table
 	truncate bool
@@ -169,8 +169,8 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 // Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
 // but will support CSV inputs in the future.
 func (rb *Redbox) Pack(row []byte) error {
-	if rb.IsSendingInProgress() {
-		return ErrSendingInProgress
+	if rb.IsShippingInProgress() {
+		return ErrShippingInProgress
 	}
 
 	var tempMap map[string]interface{}
@@ -180,19 +180,19 @@ func (rb *Redbox) Pack(row []byte) error {
 	return rb.s3Box.Pack(row)
 }
 
-// Send ships written data to the destination Redshift table.
+// Ship ships written data to the destination Redshift table.
 // While a send is in progress, no other operations are permitted.
 // If a send succeeds a new s3Box will be created, allowing for further
 // packing.
-func (rb *Redbox) Send() ([]string, error) {
-	if rb.IsSendingInProgress() {
-		return nil, ErrSendingInProgress
+func (rb *Redbox) Ship() ([]string, error) {
+	if rb.IsShippingInProgress() {
+		return nil, ErrShippingInProgress
 	}
 
 	// Kick off the s3-to-Redshift job
-	rb.setSendingInProgress(true)
+	rb.setShippingInProgress(true)
 	defer func() {
-		rb.setSendingInProgress(false)
+		rb.setShippingInProgress(false)
 	}()
 
 	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.nManifests)
@@ -207,7 +207,6 @@ func (rb *Redbox) Send() ([]string, error) {
 		return nil, err
 	}
 
-	rb.newS3Box()
 	return manifests, nil
 }
 
@@ -253,20 +252,15 @@ func (rb *Redbox) copyStatement(manifest string) string {
 	return fmt.Sprintf("%s %s %s %s", copy, dataFormat, options, creds)
 }
 
-// newS3Box establishes a new s3Box for packing and tracking more data.
-func (rb *Redbox) newS3Box() {
-	rb.s3Box = rb.s3Box.FreshBox()
-}
-
-func (rb *Redbox) setSendingInProgress(inProgress bool) {
+func (rb *Redbox) setShippingInProgress(inProgress bool) {
 	rb.Lock()
 	defer rb.Unlock()
-	rb.sendingInProgress = inProgress
+	rb.shippingInProgress = inProgress
 }
 
-// IsSendingInProgress publically exposes whether a send is in progress.
-func (rb *Redbox) IsSendingInProgress() bool {
+// IsShippingInProgress publically exposes whether a send is in progress.
+func (rb *Redbox) IsShippingInProgress() bool {
 	rb.Lock()
 	defer rb.Unlock()
-	return rb.sendingInProgress
+	return rb.shippingInProgress
 }

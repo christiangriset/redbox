@@ -4,5 +4,4 @@ package s3box
 type S3BoxAPI interface {
 	Pack(data []byte) error
 	CreateManifests(manifestSlug string, nManifests int) ([]string, error)
-	FreshBox() S3BoxAPI
 }
