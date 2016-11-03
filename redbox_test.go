@@ -3,413 +3,227 @@ package redbox
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
-)
 
-const (
-	s3Bucket     = "test-bucket"
-	awsKey       = "Key"
-	awsPassword  = "Pass"
-	testEndpoint = "testendpoint"
+	"gopkg.in/DATA-DOG/go-sqlmock.v1"
 )
 
 var (
-	partialConfig = DestinationConfig{
-		Schema: "test",
-		Table:  "incomplete",
-	}
-	completeConfig = DestinationConfig{
-		Schema: "test",
-		Table:  "complete",
-		Columns: []Column{
-			Column{Name: "time", Type: "timestamp"},
-			Column{Name: "id", Type: "text", DistKey: true},
-		},
-		DataTimestampColumn: "time",
+	schema           = "test"
+	table            = "test"
+	s3Bucket         = "bucket"
+	s3Region         = "region"
+	awsKey           = "key"
+	awsPassword      = "secret"
+	testManifestSlug = "slug"
+
+	testOptions = NewRedboxOptions{
+		Schema:      schema,
+		Table:       table,
+		S3Bucket:    s3Bucket,
+		S3Region:    s3Region,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
 	}
 )
 
-func getRegionForBucketSuccess(bucket string) (string, error) {
-	return "Success", nil
+type MockSuccessS3Box struct {
 }
 
-func getRegionForBucketFail(bucket string) (string, error) {
-	return "", fmt.Errorf("Failed getting bucket location.")
-}
-
-func writeToS3Success(s3Handler *s3.S3, schema, table string, input []byte) error {
+func (m *MockSuccessS3Box) Pack(data []byte) error {
 	return nil
 }
 
-func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte) error {
-	return fmt.Errorf("Failed writing to s3.")
-}
-
-// Simulate a fast http call. We never care about the result.
-func fastHandler(w http.ResponseWriter, r *http.Request) {
-}
-
-// Simulate a slow http call. We never care about the result.
-func slowHandler(w http.ResponseWriter, r *http.Request) {
-	time.Sleep(time.Second)
-}
-
-func TestMain(m *testing.M) {
-	// Assume successful s3 calls by default
-	getRegionForBucket = getRegionForBucketSuccess
-	writeToS3 = writeToS3Success
-
-	os.Exit(m.Run())
-}
-
-func TestSuccessfulBoxCreation(t *testing.T) {
-	assert := assert.New(t)
-	// We should be able to successfully create a box with both complete and incomplete configurations.
-	_, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.NoError(err)
-
-	_, err = NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       testEndpoint,
-	})
-	assert.NoError(err)
-}
-
-func TestUnsuccessfulBoxCreation(t *testing.T) {
-	assert := assert.New(t)
-
-	// Error with incomplete input
-	_, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-	})
-	assert.Equal(err, ErrIncompleteArgs)
-
-	// Error if we include a config without either a schema or table
-	_, err = NewRedbox(NewRedboxOptions{
-		DestinationConfig: &DestinationConfig{Schema: "incomplete"},
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.Equal(err, ErrIncompleteDestinationConfig)
-
-	_, err = NewRedbox(NewRedboxOptions{
-		DestinationConfig: &DestinationConfig{Table: "incomplete"},
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.Equal(err, ErrIncompleteDestinationConfig)
-
-	// If we can't get the bucket location we should error
-	getRegionForBucket = getRegionForBucketFail
-	defer func() {
-		getRegionForBucket = getRegionForBucketSuccess
-	}()
-	_, err = NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.Error(err)
-}
-
-func TestValidPacks(t *testing.T) {
-	assert := assert.New(t)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.NoError(err)
-
-	data1, _ := json.Marshal(map[string]interface{}{"Table": "row"})
-	assert.NoError(rp.Pack(data1))
-	assert.Equal(len(rp.bufferedData), len(data1)+1) // Account for the appended new line character
-
-	rp, err = NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
-	assert.NoError(err)
-
-	data2, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data2))
-	assert.Equal(len(rp.bufferedData), len(data2)+1) // Account for the appended new line character
-}
-
-func TestCorrectNumberOfS3Writes(t *testing.T) {
-	assert := assert.New(t)
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		BufferSize:        len(data), // This is chosen such that each pack will overflow the buffer and "write" to s3
-	})
-	assert.NoError(err)
-
-	nFiles := 10
-	for i := 0; i < nFiles; i++ {
-		assert.NoError(rp.Pack(data))
+func (m *MockSuccessS3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
+	var manifests []string
+	for i := 0; i < nManifests; i++ {
+		manifest := fmt.Sprintf("%s_%d.manifest", testManifestSlug, i)
+		manifests = append(manifests, manifest)
 	}
-	assert.Equal(rp.fileNumber, nFiles)
-	assert.Equal(len(rp.fileLocations), nFiles)
+	return manifests, nil
 }
 
-func TestInvalidPacks(t *testing.T) {
-	assert := assert.New(t)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       testEndpoint,
-	})
-	assert.NoError(err)
-
-	stringData := []byte("Some string")
-	assert.Error(rp.Pack(stringData))
-
-	jsonArray := []byte("[{\"k1\": \"v1\"},{\"k2\":\"v2\"}\"]")
-	assert.Equal(rp.Pack(jsonArray), ErrInvalidJSONInput)
+type MockSlowS3Box struct {
 }
 
-func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
-	assert := assert.New(t)
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		BufferSize:        len(data) + 2,
-	})
-	assert.NoError(err)
-
-	assert.NoError(rp.Pack(data))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
-
-	invalidData := []byte("Some string")
-	assert.Error(rp.Pack(invalidData))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
-	assert.Equal(rp.fileNumber, 0)
-	assert.Equal(len(rp.fileLocations), 0)
-
-	// Since we'll be packing data larger than the buffer size, this will trigger
-	// a write. And since this write will fail the pack will fail and the data
-	// should remain unchanged.
-	writeToS3 = writeToS3Fail
-	defer func() {
-		writeToS3 = writeToS3Success
-	}()
-	assert.Error(rp.Pack(data))
-	assert.Equal(len(rp.bufferedData), len(data)+1)
-	assert.Equal(rp.fileNumber, 0)
-	assert.Equal(len(rp.fileLocations), 0)
+func (m *MockSlowS3Box) Pack(data []byte) error {
+	time.Sleep(10 * time.Millisecond)
+	return nil
 }
 
-func TestNoWritesAfterSeal(t *testing.T) {
-	assert := assert.New(t)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       testEndpoint,
-	})
-	assert.NoError(err)
-
-	assert.NoError(rp.Seal())
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.Equal(rp.Pack(data), ErrBoxIsSealed)
+func (m *MockSlowS3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
+	time.Sleep(100 * time.Millisecond)
+	var manifests []string
+	for i := 0; i < nManifests; i++ {
+		manifest := fmt.Sprintf("%s_%d.manifest", testManifestSlug, i)
+		manifests = append(manifests, manifest)
+	}
+	return manifests, nil
 }
 
-func TestSuccessfulSend(t *testing.T) {
+func TestSuccessfulJSONPack(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	redbox := newRedboxGivenS3BoxAndRedshift(testOptions, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.NoError(rp.Send())
+	data, _ := json.Marshal(map[string]interface{}{"key": "value"})
+	assert.NoError(redbox.Pack(data))
+	assert.NoError(mock.ExpectationsWereMet()) // Assert no SQL statements were made.
 }
 
-func TestSuccessfulMultipleSends(t *testing.T) {
+func TestUnsuccessfulCSVPack(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	redbox := newRedboxGivenS3BoxAndRedshift(testOptions, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.NoError(rp.Send())
-
-	assert.NoError(rp.Pack(data))
-	assert.NoError(rp.Send())
+	data := []byte("d1,d2")
+	assert.Equal(redbox.Pack(data), errInvalidJSONInput)
+	assert.NoError(mock.ExpectationsWereMet()) // Assert no SQL statements were made.
 }
 
-func TestSuccessfulSendWhenSealed(t *testing.T) {
+func TestCorrectDBCallsOnSendWithTruncate(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	options := testOptions
+	options.Truncate = true
+	options.NManifests = 5
+	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.NoError(rp.Seal())
-	assert.NoError(rp.Send())
+	// Set expected commands for mocked SQL client
+	mock.ExpectBegin()
+	delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", schema, table)
+	mock.ExpectExec(delStmt).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	assert.NoError(err)
+	for _, manifest := range manifests {
+		copyStmt := redbox.copyStatement(manifest)
+		mock.ExpectExec(copyStmt).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+
+	mock.ExpectCommit()
+
+	// Run send and assert correct calls were made
+	shippedManifests, err := redbox.Ship()
+	assert.Equal(shippedManifests, manifests)
+	assert.NoError(err)
+	assert.NoError(mock.ExpectationsWereMet())
 }
 
-func TestUnsuccessfulSendWithoutEndpoint(t *testing.T) {
+func TestCorrectDBCallsOnSendWithoutTruncate(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-	})
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	options := testOptions
+	options.NManifests = 5
+	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.Equal(rp.Send(), ErrNoJobEndpoint)
+	// Set expected commands for mocked SQL client
+	mock.ExpectBegin()
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	assert.NoError(err)
+	for _, manifest := range manifests {
+		copyStmt := redbox.copyStatement(manifest)
+		mock.ExpectExec(copyStmt).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectCommit()
+
+	// Run Send and assert correct calls were made
+	shippedManifests, err := redbox.Ship()
+	assert.Equal(shippedManifests, manifests)
+	assert.NoError(err)
+	assert.NoError(mock.ExpectationsWereMet())
 }
 
-func TestUnsuccessfulSendWithInvalidEndpoint(t *testing.T) {
+func TestRollbackOnError(t *testing.T) {
 	assert := assert.New(t)
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
+	assert.NoError(err)
+	options := testOptions
+	options.NManifests = 5
+	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       "some_invalid_endpoint",
-	})
+	// Set expected commands for mocked SQL client
+	mock.ExpectBegin()
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
 	assert.NoError(err)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.Error(rp.Send())
-	assert.True(rp.isSealed) // It's important the box remains sealed after a failed job post.
+	copyErr := fmt.Errorf("Some COPY Error")
+	copyStmt := redbox.copyStatement(manifests[0])
+	mock.ExpectExec(copyStmt).WillReturnError(copyErr)
+	mock.ExpectRollback()
+
+	// Run Send and assert correct calls were made
+	shippedManifests, err := redbox.Ship()
+	assert.Nil(shippedManifests)
+	assert.Equal(err, copyErr)
+	assert.NoError(mock.ExpectationsWereMet())
 }
 
-func TestUnsuccessfulSendWithoutValidConfig(t *testing.T) {
+func TestNoActionWithNoDataWrites(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", fastHandler).Methods("POST")
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &partialConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
+	s3Box := &MockSuccessS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	options := testOptions
+	options.NManifests = 0
+	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
-	assert.Error(rp.Send())
-	assert.True(rp.isSealed) // It's important the box remains sealed after failing with an invalid config.
+	manifests, err := redbox.Ship()
+	assert.Nil(manifests)
+	assert.Equal(err, errNothingToShip)
+	assert.NoError(mock.ExpectationsWereMet())
 }
 
-func TestOperationsErrorDuringSend(t *testing.T) {
+func TestNoActionsAllowedDuringOrAfterSuccessfulSend(t *testing.T) {
 	assert := assert.New(t)
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", slowHandler).Methods("POST") // Slow handler ensure we have time to test other actions while sending is in progress
-	server := httptest.NewServer(r)
-	rp, err := NewRedbox(NewRedboxOptions{
-		DestinationConfig: &completeConfig,
-		S3Bucket:          s3Bucket,
-		AWSKey:            awsKey,
-		AWSPassword:       awsPassword,
-		JobEndpoint:       server.URL,
-	})
+	s3Box := &MockSlowS3Box{}
+	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
+	options := testOptions
+	options.NManifests = 5
+	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
 
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(rp.Pack(data))
+	// Set expected commands for mocked SQL client
+	mock.ExpectBegin()
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	assert.NoError(err)
+	for _, manifest := range manifests {
+		copyStmt := redbox.copyStatement(manifest)
+		mock.ExpectExec(copyStmt).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectCommit()
 
-	// Asyncronously call a Send and ensure any operation fails in the meantime
-	sendWg := &sync.WaitGroup{}
-	sendWg.Add(1)
+	// Kick off a slow running ship
 	go func() {
-		defer sendWg.Done()
-		assert.NoError(rp.Send())
+		_, err := redbox.Ship()
+		assert.NoError(err)
 	}()
+	time.Sleep(10 * time.Millisecond)
 
-	for !rp.SendingInProgress { // Block until sending is labelled as in progress
+	// Ensure that operations error during a send
+	data, _ := json.Marshal(map[string]interface{}{"key": "value"})
+	for redbox.isShippingInProgress() {
+		assert.Equal(redbox.Pack(data), errShippingInProgress)
+		_, shipErr := redbox.Ship()
+		assert.Equal(shipErr, errShippingInProgress)
+		time.Sleep(7 * time.Millisecond)
 	}
-	assert.Equal(rp.Pack(data), ErrSendingInProgress)
-	assert.Equal(rp.Seal(), ErrSendingInProgress)
-	assert.Equal(rp.Send(), ErrSendingInProgress)
-	assert.Equal(rp.NextBox(), ErrSendingInProgress)
-	sendWg.Wait()
 
-	// After sending is finished, ensure operations work as normal
-	assert.False(rp.SendingInProgress)
-	assert.NoError(rp.Pack(data))
-	assert.NoError(rp.Seal())
-	assert.NoError(rp.Send())
+	assert.Equal(redbox.Pack(data), errBoxShipped)
+	_, shipErr := redbox.Ship()
+	assert.Equal(shipErr, errBoxShipped)
+
+	assert.NoError(mock.ExpectationsWereMet())
 }

@@ -17,7 +17,7 @@ const aesAlgo = "AES256" // Algo used for server-side encryption.
 
 // Modularize functions for testing
 var (
-	getRegionForBucket func(string) (string, error)
+	GetRegionForBucket func(string) (string, error)
 	writeToS3          func(s3Handler *s3.S3, bucket string, fileKey string, data []byte, gzip bool) error
 )
 
@@ -97,6 +97,6 @@ func writeToS3Manager(s3Handler *s3.S3, bucket, key string, data []byte, gzip bo
 }
 
 func init() {
-	getRegionForBucket = getRegionForBucketProd
+	GetRegionForBucket = getRegionForBucketProd
 	writeToS3 = writeToS3Manager
 }

@@ -15,10 +15,11 @@ const (
 	s3Bucket    = "test-bucket"
 	awsKey      = "Key"
 	awsPassword = "Pass"
+	s3Region    = "us-west-1"
 )
 
 func getRegionForBucketSuccess(bucket string) (string, error) {
-	return "Success", nil
+	return s3Region, nil
 }
 
 func getRegionForBucketFail(bucket string) (string, error) {
@@ -35,7 +36,7 @@ func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte, gzip bo
 
 func TestMain(m *testing.M) {
 	// Assume successful s3 calls by default
-	getRegionForBucket = getRegionForBucketSuccess
+	GetRegionForBucket = getRegionForBucketSuccess
 	writeToS3 = writeToS3Success
 
 	os.Exit(m.Run())
@@ -52,12 +53,30 @@ func TestSuccessfulBoxCreation(t *testing.T) {
 	assert.NoError(err)
 }
 
+func TestDontAttemptToGetRegionIfProvided(t *testing.T) {
+	// We shouldn't error in creating an S3Box if getting the region fails.
+	GetRegionForBucket = getRegionForBucketFail
+	defer func() {
+		GetRegionForBucket = getRegionForBucketSuccess
+	}()
+
+	assert := assert.New(t)
+	// We should be able to successfully create a box with both complete and incomplete configurations.
+	_, err := NewS3Box(NewS3BoxOptions{
+		S3Bucket:    s3Bucket,
+		S3Region:    s3Region,
+		AWSKey:      awsKey,
+		AWSPassword: awsPassword,
+	})
+	assert.NoError(err)
+}
+
 func TestUnsuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
 
 	// Error if we include a config without either a schema or table
 	_, err := NewS3Box(NewS3BoxOptions{})
-	assert.Equal(err, ErrS3BucketRequired)
+	assert.Equal(err, errS3BucketRequired)
 }
 
 func TestValidPacks(t *testing.T) {
@@ -146,7 +165,7 @@ func TestNoWritesAfterManifestCreation(t *testing.T) {
 	assert.NoError(sb.Pack(data))
 	_, err = sb.CreateManifests("test", 1)
 	assert.NoError(err)
-	assert.Equal(sb.Pack(data), ErrBoxIsShipped)
+	assert.Equal(sb.Pack(data), errBoxIsShipped)
 }
 
 func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
@@ -165,7 +184,7 @@ func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
 	assert.NoError(err)
 
 	_, err = sb.CreateManifests("test", 1)
-	assert.Equal(err, ErrBoxIsShipped)
+	assert.Equal(err, errBoxIsShipped)
 }
 
 func TestCreatesCorrectNumberOfManifests(t *testing.T) {

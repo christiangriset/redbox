@@ -1,240 +1,97 @@
 # redbox
 
-Library aiding data transport to Redshift through straighforward configuration and intuitive methods (Pack and Send).
+Library simplifying data transport to Redshift via straighforward configuration and intuitive methods (Pack and Ship).
 
-The core under-the-hood functionality is the streaming of (JSON formatted) data into s3 while managing consistent file sizes and easy creation of manifests.
-The power of this library comes when pairing with an [s3-to-Redshift](https://github.com/clever/s3-to-redshift) worker. This enables
-the "Send" feature automating the kick off of an s3-To-Redshift job.
-
-Even without an s3-to-Redshift hookup, this is a well organized utility for general streaming to s3 and managing manifests for custom COPY commands.
-
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
-
-- [redbox](#redbox)
-- [Usage](#usage)
-  - [Redbox - The Methods](#redbox---the-methods)
-    - [Pack(data []byte) error](#packdata-byte-error)
-    - [Seal() error](#seal-error)
-    - [Send() error (Requires s3-to-Redshift hookup)](#send-error-requires-s3-to-redshift-hookup)
-    - [CreateAndUploadCustomManifest(manifestKey) error](#createanduploadcustommanifestmanifestkey-error)
-    - [NextBox() error](#nextbox-error)
-  - [Redbox - The Configuration](#redbox---the-configuration)
-    - [DestinationConfig](#destinationconfig)
-      - [Validate() error](#validate-error)
-    - [NewRedboxOptions](#newredboxoptions)
-- [Example With s3-to-Redshift Hookup](#example-with-s3-to-redshift-hookup)
-- [Example Without s3-to-Redshift Hookup](#example-without-s3-to-redshift-hookup)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
-# Usage
-
-The two primary types supplied are `Redbox` and `DestinationConfig`. Setting up a Redbox requires a DestinationConfig. For exmaple:
-
-```
-dc := &DestinationConfig{
-  Schema: "schema",
-  Table: "table",
-  Columns: []Column{
-    Column{Name: "time", Type:"timestamp"},
-    Column{Name: "id", Type:"text"}
-  }
-  DataTimestampColumn: "time"
-}
-
-r, err := NewRedbox(&NewRedboxOptions{
-    DestinationConfig: dc,
-    S3Bucket: "bucket-with-user-access",
-    AWSKey: yourAWSAccessKeyID,
-    AWSPassword: yourAWSSecretAccessKey,
-  })
-```
-
-## Redbox - The Methods
-
-Redbox is the workhorse manager. Below is an overview of the methods and setup.
-
-### Pack(data []byte) error
-
-Pack buffers the data without sending to Redshift. Once the buffer grows larger than it's maximum size (10MB by default)
-the data is gziped and streamed to s3.
-
-Currently Pack is a single row operation which *only* accepts JSONifiable inputs, i.e. those marshalable into a map.
-
-Pack is concurrency safe.
-
-### Seal() error
-
-Seal flushes any buffered data to s3 and prevents further Packing.
-
-### Send() error (Requires s3-to-Redshift hookup)
-
-Send seals the box, generates the s3 manifest and configuration files and kicks off an s3-to-Redshift job.
-While a Send is in progress **all methods** will error. After a successful send, NextBox is called, meaning memory of the previously packed data is lost.
-
-The field `Redbox.SendingInProgress` is exposed to help the user manage other operations during a send.
-
-**Note** An unsuccessful Send will keep the box permanently sealed. Send is safe to implement retry logic around.
-
-### CreateAndUploadCustomManifest(manifestKey) error
-
-This is the primary utility for users not intending to utilize an s3-to-Redshift hookup.
-Once the package is sealed (and thus all data is flushed to s3), this creates a manifest in s3
-with the custom manifest name. This will also seal the box.
-
-The user can then set off their own custom COPY commands utilizing this manifest.
-
-**Note**: The input should *not* be the full s3 path. The configuration will already include the bucket and create the full path for you. This helps prevent cases where a different bucket from the input configuration is supplied.
-
-### NextBox() error
-
-NextBox gives you a new box, forgetting everything about previously packaged data
+Redbox is transactional. User packs data until they're finished, after which a call to Ship transports the data to Redshift.
 
 ## Redbox - The Configuration
 
-### DestinationConfig
+### RedshiftConfiguration
 
 ```
-type DestinationConfig struct {
-	Schema              string   // Required
-	Table               string   // Required
-	Columns             []Column // Required for s3-to-Redshift transport
-	DataTimestampColumn string   // Required for s3-to-Redshift transport
-}
-
-type Column struct {
-	Name       string
-	Type       string
-	SortOrd    int
-  	DistKey    bool
-	DefaultVal string
-	NotNull    bool
-	PrimaryKey bool
+type RedshiftConfiguration struct {
+  Host              string
+  Port              string
+  User              string
+  Password          string
+  Database          string
+  ConnectionTimeout int    // Defaults to 10 seconds
 }
 ```
-
-The DataTimestampColumn is the column name which indicates the time the data was created. While it's recommended as a general practice to have such a column, it's required for a successful s3-to-Redshift run.
-
-The DistKey is the sharding key (there can be at most one enabled).
-
-SortOrd is the order at which the column should be sorted (in the same way in SQL you'd end with something like `ORDER BY time, id, name,...`).
-
-The supported types for columns are currently (Type -> SQL type):
-```
-"boolean" -> "boolean"
-"float" -> "double precision"
-"int" -> "integer"
-"timestamp" -> "timestamp without time zone"
-"text" -> "character varying(256)"
-"longtext" -> "character varying(65535)"
-```
-
-#### Validate() error 
-
-DestinationConfig comes with the method `Validate()` which returns an error if the configuration is invalid, e.g. it has multiple dist keys. `Send` will run `Validate()` and therefore will fail if the user supplied an invalid configuration.
 
 ### NewRedboxOptions
 
 ```
 type NewRedboxOptions struct {
 	// Required inputs
-	DestinationConfig *DestinationConfig
-	S3Bucket          string
+  Schema                string
+  Table                 string
+	S3Bucket              string
+	Truncate              bool
+  RedshiftConfiguration RedshiftConfiguration
+
+  // Optional region of the S3Bucket. If not provided Redbox attempts to use 
+  // the AWS API to get its location, however requires the user have permission for this action.
+  S3Region string
 
   // Optional AWS creds. If not provided they'll be grabbed from the environment.
-	AWSKey            string
-	AWSPassword       string
-	AWSToken          string
+	AWSKey      string
+	AWSPassword string
 	
-	// Optional
-	BufferSize  int    // Default 10MB
-	JobEndpoint string // Endpoint for posting an s3-to-Redshift job. Required for s3-to-Redshift hookup
-	Truncate    bool   // Flag to truncate the destination table upon Send
-	Force       bool   // Forgos s3-to-Redshift's data protection against duplicate rows
+	// Optional management configurations.
+	BufferSize int // Default: 100MB
+  NManifests int // Default: 4
 }
 ```
 
-The expected usecase around controlling BufferSize is for worker memory management. To comfortably use this package at least `2*BufferSize` of memory should be available at any time.
+- Truncate instructs Redbox to clear the destination first before transporting data. This is useful for tables representing current snapshots of the world.
+- BufferSize sets the file sizes uploaded s3. This is useful for memory management and `2\*BufferSize` should be comfortably available at all times. AWS recommends this lie between 10MB and 1GB.
+- NManifests will not likely need to be touched. To prevent connection timeouts for extremely large data transports, NManifests will instruct how many manifests to split the data across. A default of 4 should be sufficient for a large number of use cases.
 
-# Example With s3-to-Redshift Hookup
+
+## Redbox - The Methods
+
+### Pack(data []byte) error
+
+Pack buffers data without sending to Redshift and is concurrency safe.
+
+Currently Pack is a single row operation which *only* accepts JSONifiable inputs, i.e. those marshalable into a `map[string]interface{}`.
+
+### Ship() ([]string, error)
+
+Ship commits all packed data to Redshift. If "Truncate" is provided in the configuration, the destination table will first be deleted.
+Ship is transactional, meaning any returned error implies the destination table has been left unchanged.
+
+## Example
 
 ```
-type Row struct {
-  Time time.Time `json:"time"`
-  ID   string    `json:"id"`,
-}
-
 func SomeJob() {
-  // Setup
-  dc := &DestinationConfig{
-    Schema: "schema",
-    Table: "table",
-    Columns: []Column{
-      Column{Name: "time", Type:"timestamp", SortOrd:1},
-      Column{Name: "id", Type:"text", DistKey:true},
-    }
-    DataTimestampColumn: "time",
-  }
-
-  r, err := NewRedbox(&NewRedboxOptions{
-    DestinationConfig: dc,
+  // Setup. AWS creds determined from environment.
+  redbox, err := NewRedbox(NewRedboxOptions{
+    Schema:   "schema",
+    Table:    "table",
     S3Bucket: "bucket-with-user-access",
-    AWSKey: yourAWSAccessKeyID,
-    AWSPassword: yourAWSSecretAccessKey,
-    JobEndpoint: pathToWorker,
+    Truncate: false,
+    RedshiftConfiguration: RedshiftConfiguration{
+      Port:     "5439",
+      Host:     "redshift@host.com",
+      User:     "me",
+      Password: "Secret",
+      Database: "",
+    },
   })
   handleError(err)
   
   // Data Transfer
   dataStore := getSomeDataStore()
   for dataStore.Iter() {
-    rowData := dataStore.GetNextRow() // Return a single Row object
+    rowData := dataStore.GetNextRow()
     rowBytes, _ := json.Marshal(rowData)
-    handleError(r.Pack(rowBytes))
+    handleError(redbox.Pack(rowBytes))
   }
 
-  handleError(r.Send())
-}
-```
-
-# Example Without s3-to-Redshift Hookup
-
-```
-type Row struct {
-  Time time.Time `json:"time"`
-  ID   string    `json:"id"`
-}
-
-func SomeJob() {
-  // Setup
-  dc := &DestinationConfig{
-    Schema: "schema",
-    Table: "table",
-  }
-
-  r, err := NewRedbox(&NewRedboxOptions{
-    DestinationConfig: dc,
-    S3Bucket: "bucket-with-user-access",
-    AWSKey: yourAWSAccessKeyID,
-    AWSPassword: yourAWSSecretAccessKey,
-  })
+  manifests, err := redbox.Ship()
   handleError(err)
-  
-  // Data Transfer
-  dataStore := getSomeDataStore()
-  for dataStore.Iter() {
-    rowData := dataStore.GetNextRow() // Return a single Row object
-    rowBytes, _ := json.Marshal(rowData)
-    handleError(r.Pack(rowBytes))
-  }
 
-  manifestKey := "data_locations.manifest"
-  handleError(r.CreateAndUploadCustomManifest(manifestKey))
-  handleError(runSomeCustomCopyCommand(manifestKey))
-  handleError(r.NextBox())
-  
-  // Process more data and run more COPYs
-  ...
+  log.Printf("Data is located at these manifests %+v", manifests)
 }

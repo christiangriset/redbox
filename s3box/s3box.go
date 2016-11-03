@@ -14,16 +14,16 @@ import (
 )
 
 const (
-	// DefaultBufferSize is set to 10MB
-	DefaultBufferSize = 10 * 1000 * 1000
+	// defaultBufferSize is set to 10MB
+	defaultBufferSize = 10 * 1000 * 1000
 )
 
 var (
-	// ErrS3BucketRequired signals an s3 bucket wasn't provided
-	ErrS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
+	// errS3BucketRequired signals an s3 bucket wasn't provided
+	errS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
 
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
-	ErrBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
+	errBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
 )
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
@@ -62,6 +62,12 @@ type NewS3BoxOptions struct {
 	// This is required.
 	S3Bucket string
 
+	// S3Region is the region of the s3 bucket.
+	// Optional: If not provided, the region is
+	// looked up via the AWS API. However if provided,
+	// an S3Box can be reestablished without error.
+	S3Region string
+
 	// AWSKey is the AWS ACCESS KEY ID.
 	// By default grabs from your environment.
 	AWSKey string
@@ -85,18 +91,22 @@ type NewS3BoxOptions struct {
 func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 	// Check for required inputs and a valid destination config
 	if options.S3Bucket == "" {
-		return nil, ErrS3BucketRequired
+		return nil, errS3BucketRequired
 	}
 
-	bufferSize := DefaultBufferSize
+	bufferSize := defaultBufferSize
 	if options.BufferSize > 0 {
 		bufferSize = options.BufferSize
 	}
 
 	// Setup s3 handler and aws configuration. If no creds are explicitly provided, they'll be grabbed from the environment.
-	region, err := getRegionForBucket(options.S3Bucket)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
+
+	if options.S3Region == "" {
+		region, err := GetRegionForBucket(options.S3Bucket)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
+		}
+		options.S3Region = region
 	}
 
 	// If AWS creds were provided use those, otherwise grab them from your environment
@@ -109,7 +119,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 		}
 		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
 	}
-	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
+	awsConfig := aws.NewConfig().WithRegion(options.S3Region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
 	awsSession := session.New()
 
 	return &S3Box{
@@ -124,7 +134,7 @@ func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
 // Any error will leave the buffer unmodified.
 func (sb *S3Box) Pack(data []byte) error {
 	if sb.isShipped {
-		return ErrBoxIsShipped
+		return errBoxIsShipped
 	}
 
 	sb.Lock()
@@ -152,7 +162,7 @@ func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string,
 	sb.Lock()
 	defer sb.Unlock()
 	if sb.isShipped {
-		return nil, ErrBoxIsShipped
+		return nil, errBoxIsShipped
 	}
 
 	if err := sb.dumpToS3(); err != nil {

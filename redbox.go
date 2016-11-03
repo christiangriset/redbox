@@ -1,49 +1,33 @@
 package redbox
 
 import (
-	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
+	"os"
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/cgclever/redbox/s3box"
 )
 
-const (
-	// DefaultBufferSize is set to 10MB
-	DefaultBufferSize = 10000000
-)
+const defaultNManifests = 4
 
 var (
-	// ErrIncompleteDestinationConfig indicates that either a schema or table name are missing
-	ErrIncompleteDestinationConfig = fmt.Errorf("Destination config input must include a schema and table name.")
+	// errShippingInProgress captures operations when a send is in progress.
+	errShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
 
-	// ErrSendingInProgress captures operations when a send is in progress.
-	ErrSendingInProgress = fmt.Errorf("Cannot perform any action when sending is in progress.")
+	// errIncompleteArgs captures when not enough arguments are given for generating a new Redbox
+	errIncompleteArgs = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
 
-	// ErrIncompleteArgs captures when not enough arguments are given for generating a new Redbox
-	ErrIncompleteArgs = fmt.Errorf("Creating a redshift box requires a distination config and an s3 bucket.")
+	// errInvalidJSONInput captures when the input data can't be marshalled into JSON.
+	errInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
 
-	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
-	ErrBoxIsSealed = fmt.Errorf("Cannot perform action when box is sealed.")
+	// errBoxShipped captures invalid actions once the box has been shipped
+	errBoxShipped = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
 
-	// ErrNoJobEndpoint indicates we can't send without a job endpoint
-	ErrNoJobEndpoint = fmt.Errorf("Cannot send s3-to-Redshift job without an endpoint.")
-
-	// ErrInvalidConfig indicates the config is invalid for sending
-	ErrInvalidConfig = fmt.Errorf("Cannot perform send with an invalid configuration. It's recommended you create a test to ensure valid configuration inputs.")
-
-	// ErrInvalidJSONInput captures when the input data can't be marshalled into JSON.
-	ErrInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
-
-	// ErrBoxNotSealed captures trying to create a custom manifest on an unsealed stream
-	ErrBoxNotSealed = fmt.Errorf("Can only create a custom manifest on a sealed stream.")
+	// errNothingToShip captures when no data was ever written to s3
+	errNothingToShip = fmt.Errorf("Cannot perform send, no data was sent to s3.")
 )
 
 // Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
@@ -51,59 +35,57 @@ type Redbox struct {
 	// Inheret mutex locking/unlocking
 	sync.Mutex
 
-	// destinationConfig describes the destination table of the data
-	destinationConfig *DestinationConfig
-
 	// schema is the schema of the destination
 	schema string
 
 	// table is the table name of the destination
 	table string
 
-	// s3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket.
+	// awsKey is the AWS ACCESS KEY ID to the s3bucket
+	awsKey string
+
+	// awsPassword is the AWS SECRET ACCESS KEY to the s3Bucket
+	awsPassword string
+
+	// s3Bucket is the bucket storing our data
 	s3Bucket string
 
-	// s3Handler manages the piping of data to s3
-	s3Handler *s3.S3
+	// s3Region is the location of the destination s3Bucket
+	s3Region string
 
-	// jobEndpoint is the endpoint responsible for kicking off an s3-to-Redshift job
-	jobEndpoint string
+	// nManifests is the number of manifests to split streamed data into.
+	nManifests int
 
-	// bufferSize is the maximum size of data we're willing to buffer before creating an s3 file
-	bufferSize int
+	// s3Box manages the transport of data to Redshift
+	s3Box s3box.S3BoxAPI
 
-	// bufferedData is the data currently buffered in the box. Calling Dump ships this data into s3
-	bufferedData []byte
+	// redshift is the direct redshift connection
+	redshift *sql.DB
 
-	// timestamp tracks the time a box was created or reset
-	timestamp time.Time
+	// shippingInProgress indicates if a send is in progress
+	shippingInProgress bool
 
-	// fileNumber indicates the number of s3 files which have currently been created
-	fileNumber int
-
-	// fileLocations stores the s3 files already created
-	fileLocations []string
-
-	// isSealed indicates whether writes are currently allows to the buffer
-	isSealed bool
-
-	// SendingInProgress indicates if a send is in progress
-	SendingInProgress bool
+	// shipped indicates if the box has been shipped
+	shipped bool
 
 	// truncate indicates if we should truncate the destination table
 	truncate bool
-
-	// force indicates whether we should force the data into redshift without the protection of checking for data duplication
-	force bool
 }
 
 // NewRedboxOptions is the expected input for creating a new Redbox
 type NewRedboxOptions struct {
-	// DestinationConfig describes the destination table of the data.
-	DestinationConfig *DestinationConfig
+	// Schema is the destination Redshift table schema
+	Schema string
 
-	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket
+	// Table is the destination Redshift table name
+	Table string
+
+	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket.
 	S3Bucket string
+
+	// S3Region is the location of the S3Bucket. If not provided Redbox will
+	// location the region via the AWS API.
+	S3Region string
 
 	// AWSKey is the AWS ACCESS KEY ID
 	AWSKey string
@@ -111,265 +93,203 @@ type NewRedboxOptions struct {
 	// AWSPassword is the AWS SECRET ACCESS KEY
 	AWSPassword string
 
-	// AWSToken is the AWS SESSION TOKEN
-	AWSToken string
-
-	// JobEndpoint is the endpoint responsible for kicking off an s3-to-Redshift job
-	JobEndpoint string
-
-	// BufferSize is the maximum size of data we're willing to buffer before creating an s3 file
+	// BufferSize is the maximum size of data we're willing to buffer
+	// before creating an s3 file
 	BufferSize int
+
+	// NManifests is an optional parameter choosing how many manifests
+	// to break data into. When data transfer gets to several gigabytes
+	// the user should experiment with larger manifest numbers to prevent
+	// timeouts.
+	//
+	// Note: This number isn't attempted to be autocalculated as
+	// different cluster configurations can handle different influxes
+	// of data. However the number defaults to 4.
+	NManifests int
 
 	// Truncate indicates if we should truncate the destination table
 	Truncate bool
 
-	// Force indicates whether we should force the data into redshift without the protection of checking for data duplication
-	Force bool
+	// RedshiftConfiguration specifies the destination Redshift configuration
+	RedshiftConfiguration RedshiftConfiguration
 }
 
-// NewRedbox creates a new Redbox given the input options, but without the requirement of a destination config.
-// Errors occur if there's an invalid input or if there's difficulty setting up an s3 connection.
-func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
-	dc := options.DestinationConfig
-	// Check for required inputs and a valid destination config
-	if dc == nil || options.S3Bucket == "" {
-		return nil, ErrIncompleteArgs
-	}
-
-	if dc.Schema == "" || dc.Table == "" {
-		return nil, ErrIncompleteDestinationConfig
-	}
-
-	bufferSize := DefaultBufferSize
-	if options.BufferSize > 0 {
-		bufferSize = options.BufferSize
-	}
-
-	// Setup s3 handler and aws configuration. If no creds are explicitly provided, they'll be grabbed from the environment.
-	region, err := getRegionForBucket(options.S3Bucket)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get AWS region for bucket %s: (%s)", options.S3Bucket, err)
-	}
-
-	// If AWS creds were provided use those, otherwise grab them from your environment
-	var awsCreds *credentials.Credentials
-	if options.AWSKey == "" && options.AWSPassword == "" && options.AWSToken == "" {
-		awsCreds = credentials.NewEnvCredentials()
-	} else {
-		awsCreds = credentials.NewStaticCredentials(options.AWSKey, options.AWSPassword, options.AWSToken)
-	}
-	awsConfig := aws.NewConfig().WithRegion(region).WithS3ForcePathStyle(true).WithCredentials(awsCreds)
-	awsSession := session.New()
-
+// newRedboxGivenS3BoxAndRedshift returns an Redbox with given input s3Box and redshift inputs.
+func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
 	return &Redbox{
-		destinationConfig: dc,
-		schema:            dc.Schema,
-		table:             dc.Table,
-		s3Bucket:          options.S3Bucket,
-		jobEndpoint:       options.JobEndpoint,
-		timestamp:         time.Now(),
-		s3Handler:         s3.New(awsSession, awsConfig),
-		bufferSize:        bufferSize,
-		truncate:          options.Truncate,
-		force:             options.Force,
-	}, nil
+		schema:      options.Schema,
+		table:       options.Table,
+		s3Bucket:    options.S3Bucket,
+		s3Region:    options.S3Region,
+		nManifests:  options.NManifests,
+		awsKey:      options.AWSKey,
+		awsPassword: options.AWSPassword,
+		s3Box:       s3Box,
+		redshift:    redshift,
+		truncate:    options.Truncate,
+	}
 }
 
-// NextBox gives you a new box, forgetting everything about previously packaged data
-func (rp *Redbox) NextBox() error {
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
+// NewRedbox creates a new Redbox given the input options.
+// Errors occur if there's an invalid input or if there's
+// difficulty setting up either an s3 or redshift connection.
+func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
+	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
+		return nil, errIncompleteArgs
 	}
-	rp.Lock()
-	rp.timestamp = time.Now()
-	rp.fileNumber = 0
-	rp.fileLocations = []string{}
-	rp.bufferedData = []byte{}
-	rp.isSealed = false
-	rp.Unlock()
-	return nil
+
+	if options.AWSKey == "" {
+		options.AWSKey = os.Getenv("AWS_ACCESS_KEY_ID")
+	}
+	if options.AWSPassword == "" {
+		options.AWSPassword = os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+
+	if options.S3Region == "" {
+		s3Region, err := s3box.GetRegionForBucket(options.S3Bucket)
+		if err != nil {
+			return nil, err
+		}
+		options.S3Region = s3Region
+	}
+
+	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
+		S3Bucket:    options.S3Bucket,
+		AWSKey:      options.AWSKey,
+		AWSPassword: options.AWSPassword,
+		BufferSize:  options.BufferSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	redshift, err := options.RedshiftConfiguration.RedshiftConnection()
+	if err != nil {
+		return nil, err
+	}
+
+	if options.NManifests <= 0 {
+		options.NManifests = defaultNManifests
+	}
+
+	return newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift), nil
 }
 
-// Pack writes bytes into a buffer. Once that buffer hits capacity, the data is output to s3.
-// Any error will leave the buffer unmodified.
-func (rp *Redbox) Pack(data []byte) error {
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
+// Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
+// but will support CSV inputs in the future.
+func (rb *Redbox) Pack(row []byte) error {
+	if rb.isShipped() {
+		return errBoxShipped
 	}
-	if rp.isSealed {
-		return ErrBoxIsSealed
+	if rb.isShippingInProgress() {
+		return errShippingInProgress
 	}
 
-	// If the bytes aren't in JSON format, return an error
 	var tempMap map[string]interface{}
-	if err := json.Unmarshal(data, &tempMap); err != nil {
-		return ErrInvalidJSONInput
+	if err := json.Unmarshal(row, &tempMap); err != nil {
+		return errInvalidJSONInput
+	}
+	return rb.s3Box.Pack(row)
+}
+
+// Ship ships written data to the destination Redshift table.
+// While a send is in progress, no other operations are permitted.
+// If a send succeeds a new s3Box will be created, allowing for further
+// packing.
+func (rb *Redbox) Ship() ([]string, error) {
+	if rb.isShipped() {
+		return nil, errBoxShipped
+	}
+	if rb.isShippingInProgress() {
+		return nil, errShippingInProgress
 	}
 
-	rp.Lock()
-	oldBuffer := rp.bufferedData // If write
-	data = append(data, '\n')    // Append a new line for text-editor readability
-	rp.bufferedData = append(rp.bufferedData, data...)
-	rp.Unlock()
+	// Kick off the s3-to-Redshift job
+	rb.setShippingInProgress(true)
+	defer func() {
+		rb.setShippingInProgress(false)
+	}()
 
-	// If we're hitting capacity, dump the results to s3.
-	// If shipping to s3 errors, don't modify the buffer.
-	if len(rp.bufferedData) > rp.bufferSize {
-		if err := rp.dumpToS3(); err != nil {
-			rp.Lock()
-			rp.bufferedData = oldBuffer
-			rp.Unlock()
+	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.nManifests)
+	if err != nil {
+		return nil, err
+	}
+	if len(manifests) == 0 { // If no data was written, there's nothing to ship.
+		return nil, errNothingToShip
+	}
+
+	if err := rb.copyToRedshift(manifests); err != nil {
+		return nil, err
+	}
+
+	rb.markShipped()
+	return manifests, nil
+}
+
+// manifestSlug defines a convention for the slug of each manifest file.
+func (rb *Redbox) manifestSlug() string {
+	return fmt.Sprintf("%s_%s_%s", rb.schema, rb.table, time.Now().Format(time.RFC3339))
+}
+
+// copyToRedshift transports data pointed to by the manifests into Redshift.
+// If the truncate flag is present we clear the destination table first.
+func (rb *Redbox) copyToRedshift(manifests []string) error {
+	tx, err := rb.redshift.Begin()
+	if err != nil {
+		return err
+	}
+
+	if rb.truncate {
+		delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", rb.schema, rb.table)
+		if _, err := tx.Exec(delStmt); err != nil {
+			tx.Rollback()
 			return err
 		}
 	}
 
-	return nil
+	for _, manifest := range manifests {
+		copyStmt := rb.copyStatement(manifest)
+		if _, err := tx.Exec(copyStmt); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
-// Seal closes writes and flushes any buffered data to s3. Call Unseal to enable writing again.
-func (rp *Redbox) Seal() error {
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
-	}
-
-	if err := rp.dumpToS3(); err != nil {
-		return err
-	}
-
-	rp.isSealed = true
-	return nil
+// copyStatment generates the COPY statement for the given manifest and Redbox configuration
+func (rb *Redbox) copyStatement(manifest string) string {
+	manifestURL := fmt.Sprintf("s3://%s/%s", rb.s3Bucket, manifest)
+	copy := fmt.Sprintf("COPY \"%s\".\"%s\" FROM '%s' MANIFEST REGION '%s'", rb.schema, rb.table, manifestURL, rb.s3Region)
+	dataFormat := "GZIP JSON 'auto'"
+	options := "TIMEFORMAT 'auto' TRUNCATECOLUMNS STATUPDATE ON COMPUPDATE ON"
+	creds := fmt.Sprintf("CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'", rb.awsKey, rb.awsPassword)
+	return fmt.Sprintf("%s %s %s %s", copy, dataFormat, options, creds)
 }
 
-// dumpToS3 ships buffered  data to s3 and increments the index with a clean slate of running data
-func (rp *Redbox) dumpToS3() error {
-	if len(rp.bufferedData) == 0 {
-		return nil
-	}
-	fileKey := fmt.Sprintf("%s_%s_%d_%d.json.gz", rp.schema, rp.table, rp.timestamp.Unix(), rp.fileNumber)
-	rp.Lock()
-	defer rp.Unlock()
-	if err := writeToS3(rp.s3Handler, rp.s3Bucket, fileKey, rp.bufferedData); err != nil {
-		return err
-	}
-	rp.fileNumber++
-	rp.bufferedData = []byte{}
-	fileName := fmt.Sprintf("s3://%s/%s", rp.s3Bucket, fileKey)
-	rp.fileLocations = append(rp.fileLocations, fileName)
-	return nil
+func (rb *Redbox) setShippingInProgress(inProgress bool) {
+	rb.Lock()
+	defer rb.Unlock()
+	rb.shippingInProgress = inProgress
 }
 
-// createAndUploadManifest creates a manifest with a default convention and uploads it to s3.
-func (rp *Redbox) createAndUploadManifest() error {
-	timestamp := rp.timestamp.Round(time.Hour).UTC().Format(time.RFC3339) //
-	defaultManifestName := fmt.Sprintf("%s_%s_%s.manifest", rp.schema, rp.table, timestamp)
-	return rp.CreateAndUploadCustomManifest(defaultManifestName)
+func (rb *Redbox) markShipped() {
+	rb.Lock()
+	defer rb.Unlock()
+	rb.shipped = true
 }
 
-// CreateAndUploadCustomManifest generates a manifest with a custom name, pointing to the location of each data file generated.
-//
-// NOTE: This function is meant for custom functionality for use outside of s3-to-Redshift.
-func (rp *Redbox) CreateAndUploadCustomManifest(manifestName string) error {
-	type entry struct {
-		URL       string `json:"url"`
-		Mandatory bool   `json:"mandatory"`
-	}
-	type entries struct {
-		Entries []entry `json:"entries"`
-	}
-
-	if err := rp.Seal(); err != nil {
-		return err
-	}
-
-	var manifest entries
-	for _, fileName := range rp.fileLocations {
-		manifest.Entries = append(manifest.Entries, entry{
-			URL:       fileName,
-			Mandatory: true,
-		})
-	}
-
-	manifestBytes, _ := json.Marshal(manifest)
-	log.Printf("Writing manifest to s3://%s/%s\n", rp.s3Bucket, manifestName)
-	return writeToS3(rp.s3Handler, rp.s3Bucket, manifestName, manifestBytes)
+// isShippingInProgress exposes whether a send is in progress.
+func (rb *Redbox) isShippingInProgress() bool {
+	rb.Lock()
+	defer rb.Unlock()
+	return rb.shippingInProgress
 }
 
-// uploadConfig uploads the config file to s3 and returns its location.
-// This operation requires a validated destination config
-func (rp *Redbox) uploadConfig() error {
-	dc := rp.destinationConfig
-	if err := dc.Validate(); err != nil {
-		return err
-	}
-	configPath := fmt.Sprintf("config_%s_%s_%s.yml", rp.schema, rp.table, rp.timestamp)
-	configBytes := dc.GenerateConfigBytes()
-	return writeToS3(rp.s3Handler, rp.s3Bucket, configPath, configBytes)
-}
-
-// uploadManifestAndConfig uploads both the config and manifest files to s3 and returns their locations
-func (rp *Redbox) uploadManifestAndConfig() error {
-	if err := rp.createAndUploadManifest(); err != nil {
-		return err
-	}
-	if err := rp.uploadConfig(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Send flushes any data remaining in the buffer and kicks off an s3-to-redshift job which
-// ultimately pipes all data to the specified Redshift table.
-// Send requires a validated destination config.
-// NOTE: An unsuccessful keeps the box closed.
-func (rp *Redbox) Send() error {
-	if rp.jobEndpoint == "" {
-		return ErrNoJobEndpoint
-	}
-
-	if rp.SendingInProgress {
-		return ErrSendingInProgress
-	}
-
-	// If no data was ever writen, then simply return
-	if rp.fileNumber == 0 && len(rp.bufferedData) == 0 {
-		return nil
-	}
-
-	// Dump any remaining data which hasn't been shipped to s3, prevent writes, and upload the manifest and configs
-	if err := rp.uploadManifestAndConfig(); err != nil {
-		return err
-	}
-
-	// Kick off the s3-to-Redshift job
-	rp.SendingInProgress = true
-	postErr := rp.postS3ToRedshiftJob()
-	rp.SendingInProgress = false
-	if postErr != nil {
-		return postErr
-	}
-
-	rp.NextBox()
-	return nil
-}
-
-// postS3ToRedshiftJob constructs a payload for an s3-to-Redshift worker
-func (rp *Redbox) postS3ToRedshiftJob() error {
-	client := &http.Client{}
-	payload := fmt.Sprintf("--bucket %s --schema %s --tables %s --date %s --gzip", rp.s3Bucket, rp.schema, rp.table, rp.timestamp)
-	if rp.truncate {
-		payload += " --truncate"
-	}
-	if rp.force {
-		payload += " --force"
-	}
-	req, err := http.NewRequest("POST", rp.jobEndpoint, bytes.NewReader([]byte(payload)))
-	if err != nil {
-		return fmt.Errorf("Error creating new request: %s", err)
-	}
-	req.Header.Add("Content-Type", "text/plain")
-	_, err = client.Do(req)
-	if err != nil {
-		return fmt.Errorf("Error submitting job:%s", err)
-	}
-	return nil
+// isShipped exposes whether the box has been shipped
+func (rb *Redbox) isShipped() bool {
+	rb.Lock()
+	defer rb.Unlock()
+	return rb.shipped
 }
