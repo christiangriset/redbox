@@ -1,18 +1,3 @@
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
-**Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)*
-
-- [S3Box](#s3box)
-  - [S3Box - The Configuration](#s3box---the-configuration)
-    - [NewS3Box](#news3box)
-    - [NewS3BoxOptions](#news3boxoptions)
-  - [S3Box - The Methods](#s3box---the-methods)
-    - [Pack](#pack)
-    - [CreateManifests](#createmanifests)
-- [Example](#example)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
 # S3Box
 
 Library aiding data transport to s3 through straighforward configuration and intuitive methods (Packand CreateManifest).
