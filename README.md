@@ -47,7 +47,7 @@ type NewRedboxOptions struct {
 ```
 
 - Truncate instructs Redbox to clear the destination first before transporting data. This is useful for tables representing current snapshots of the world.
-- BufferSize sets the file sizes uploaded s3. This is useful for memory management and `2\*BufferSize` should be comfortably available at all times. AWS recommends this lie between 10MB and 1GB.
+- BufferSize sets the file sizes uploaded s3. This is useful for memory management and `2*BufferSize` should be comfortably available at all times. AWS recommends this lie between 10MB and 1GB.
 - NManifests will not likely need to be touched. To prevent connection timeouts for extremely large data transports, NManifests will instruct how many manifests to split the data across. A default of 4 should be sufficient for a large number of use cases.
 
 
