@@ -4,7 +4,7 @@ Library simplifying data transport to Redshift via straighforward configuration 
 
 Redbox is transactional. User packs data until they're finished, after which a call to Ship transports the data to Redshift.
 
-See [the Godocs](https://godoc.org/github.com/cgclever/redbox) for API documentation
+See below and [the Godocs](https://godoc.org/github.com/cgclever/redbox) for API documentation
 
 ## Redbox - The Configuration
 
