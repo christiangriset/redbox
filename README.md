@@ -1,8 +1,10 @@
-# redbox
+# Redbox
 
 Library simplifying data transport to Redshift via straighforward configuration and intuitive methods (Pack and Ship).
 
 Redbox is transactional. User packs data until they're finished, after which a call to Ship transports the data to Redshift.
+
+See [the Godocs](https://godoc.org/github.com/cgclever/redbox) for API documentation
 
 ## Redbox - The Configuration
 
@@ -76,8 +78,8 @@ func SomeJob() {
       Port:     "5439",
       Host:     "redshift@host.com",
       User:     "me",
-      Password: "Secret",
-      Database: "",
+      Password: "mySecret",
+      Database: "myDB",
     },
   })
   handleError(err)
