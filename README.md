@@ -25,11 +25,11 @@ type RedshiftConfiguration struct {
 
 ```
 type NewRedboxOptions struct {
-	// Required inputs
+  // Required inputs
   Schema                string
   Table                 string
-	S3Bucket              string
-	Truncate              bool
+  S3Bucket              string
+  Truncate              bool
   RedshiftConfiguration RedshiftConfiguration
 
   // Optional region of the S3Bucket. If not provided Redbox attempts to use 
@@ -37,11 +37,11 @@ type NewRedboxOptions struct {
   S3Region string
 
   // Optional AWS creds. If not provided they'll be grabbed from the environment.
-	AWSKey      string
-	AWSPassword string
+  AWSKey      string
+  AWSPassword string
 	
-	// Optional management configurations.
-	BufferSize int // Default: 100MB
+  // Optional management configurations.
+  BufferSize int // Default: 100MB
   NManifests int // Default: 4
 }
 ```
