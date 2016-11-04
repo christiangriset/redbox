@@ -29,7 +29,7 @@ var (
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
 type S3Box struct {
 	// Inheret mutex locking/unlocking
-	sync.Mutex
+	mt sync.Mutex
 
 	// s3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket.
 	s3Bucket string
@@ -137,8 +137,8 @@ func (sb *S3Box) Pack(data []byte) error {
 		return errBoxIsShipped
 	}
 
-	sb.Lock()
-	defer sb.Unlock()
+	sb.mt.Lock()
+	defer sb.mt.Unlock()
 	oldBuffer := sb.bufferedData // If write fails, keep buffered data unchanged
 	data = append(data, '\n')    // Append a new line for text-editor readability
 	sb.bufferedData = append(sb.bufferedData, data...)
@@ -163,8 +163,8 @@ func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string,
 		return nil, err
 	}
 
-	sb.Lock()
-	defer sb.Unlock()
+	sb.mt.Lock()
+	defer sb.mt.Unlock()
 
 	type entry struct {
 		URL       string `json:"url"`
