@@ -14,26 +14,19 @@ import (
 const defaultNManifests = 4
 
 var (
-	// errShippingInProgress captures operations when a send is in progress.
 	errShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
-
-	// errIncompleteArgs captures when not enough arguments are given for generating a new Redbox
-	errIncompleteArgs = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
-
-	// errInvalidJSONInput captures when the input data can't be marshalled into JSON.
-	errInvalidJSONInput = fmt.Errorf("Only JSON-able inputs are supported for syncing to Redshift.")
-
-	// errBoxShipped captures invalid actions once the box has been shipped
-	errBoxShipped = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
-
-	// errNothingToShip captures when no data was ever written to s3
-	errNothingToShip = fmt.Errorf("Cannot perform send, no data was sent to s3.")
+	errIncompleteArgs     = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
+	errInvalidJSONInput   = fmt.Errorf("Only JSON inputs are supported.")
+	errBoxShipped         = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
+	errNothingToShip      = fmt.Errorf("Cannot perform send, no data was packed.")
 )
 
-// Redbox manages piping data into Redshift. The core idea is to buffer data locally, ship to s3 when too much is buffered, and finally box to Redshift.
+// Redbox manages piping data into Redshift.
+// An S3Box is used to manage data transport to S3 via Pack, after
+// which Ship commits the data to Redshift.
 type Redbox struct {
 	// Inheret mutex locking/unlocking
-	sync.Mutex
+	mt sync.Mutex
 
 	// schema is the schema of the destination
 	schema string
@@ -53,6 +46,9 @@ type Redbox struct {
 	// s3Region is the location of the destination s3Bucket
 	s3Region string
 
+	// truncate indicates if we should truncate the destination table
+	truncate bool
+
 	// nManifests is the number of manifests to split streamed data into.
 	nManifests int
 
@@ -67,12 +63,9 @@ type Redbox struct {
 
 	// shipped indicates if the box has been shipped
 	shipped bool
-
-	// truncate indicates if we should truncate the destination table
-	truncate bool
 }
 
-// NewRedboxOptions is the expected input for creating a new Redbox
+// NewRedboxOptions specifies the configuration for a new Redbox
 type NewRedboxOptions struct {
 	// Schema is the destination Redshift table schema
 	Schema string
@@ -80,11 +73,15 @@ type NewRedboxOptions struct {
 	// Table is the destination Redshift table name
 	Table string
 
-	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift. The user should have access to this bucket.
+	// S3Bucket specifies the intermediary bucket before ultimately piping to Redshift.
+	// The user must have both read and write access to this bucket.
 	S3Bucket string
 
-	// S3Region is the location of the S3Bucket. If not provided Redbox will
-	// location the region via the AWS API.
+	// S3Region is the location of the S3Bucket.
+	//
+	// If not provided Redbox will attempt to locate the region via the AWS API.
+	// The user will need to have 'GetBucketLocation' permissions enabled
+	// on the target S3 bucket for this feature.
 	S3Region string
 
 	// AWSKey is the AWS ACCESS KEY ID
@@ -94,28 +91,30 @@ type NewRedboxOptions struct {
 	AWSPassword string
 
 	// BufferSize is the maximum size of data we're willing to buffer
-	// before creating an s3 file
+	// before creating an s3 file.
 	BufferSize int
 
 	// NManifests is an optional parameter choosing how many manifests
 	// to break data into. When data transfer gets to several gigabytes
-	// the user should experiment with larger manifest numbers to prevent
+	// the user may need to experiment with larger manifest numbers to prevent
 	// timeouts.
 	//
-	// Note: This number isn't attempted to be autocalculated as
+	// Note: This number isn't  autocalculated as
 	// different cluster configurations can handle different influxes
 	// of data. However the number defaults to 4.
 	NManifests int
 
-	// Truncate indicates if we should truncate the destination table
+	// Truncate indicates if we should clear the destination table before
+	// transferring data. This is useful for tables representing snapshots
+	// of the world.
 	Truncate bool
 
 	// RedshiftConfiguration specifies the destination Redshift configuration
 	RedshiftConfiguration RedshiftConfiguration
 }
 
-// newRedboxGivenS3BoxAndRedshift returns an Redbox with given input s3Box and redshift inputs.
-func newRedboxGivenS3BoxAndRedshift(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
+// newRedboxInjection returns an Redbox with given input s3Box and redshift inputs.
+func newRedboxInjection(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
 	return &Redbox{
 		schema:      options.Schema,
 		table:       options.Table,
@@ -172,11 +171,10 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 		options.NManifests = defaultNManifests
 	}
 
-	return newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift), nil
+	return newRedboxInjection(options, s3Box, redshift), nil
 }
 
-// Pack writes a single row of bytes. Currently only configured to accept JSON inputs,
-// but will support CSV inputs in the future.
+// Pack writes a single row of bytes. Currently accepts JSON inputs.
 func (rb *Redbox) Pack(row []byte) error {
 	if rb.isShipped() {
 		return errBoxShipped
@@ -193,9 +191,9 @@ func (rb *Redbox) Pack(row []byte) error {
 }
 
 // Ship ships written data to the destination Redshift table.
-// While a send is in progress, no other operations are permitted.
-// If a send succeeds a new s3Box will be created, allowing for further
-// packing.
+// While shipping is in progress, no other operations are permitted.
+// Ship is transactional, meaning that any returned error means
+// the destination table has remained unchanged.
 func (rb *Redbox) Ship() ([]string, error) {
 	if rb.isShipped() {
 		return nil, errBoxShipped
@@ -232,7 +230,7 @@ func (rb *Redbox) manifestSlug() string {
 }
 
 // copyToRedshift transports data pointed to by the manifests into Redshift.
-// If the truncate flag is present we clear the destination table first.
+// If the truncate flag is present the destination table is first cleared.
 func (rb *Redbox) copyToRedshift(manifests []string) error {
 	tx, err := rb.redshift.Begin()
 	if err != nil {
@@ -269,27 +267,27 @@ func (rb *Redbox) copyStatement(manifest string) string {
 }
 
 func (rb *Redbox) setShippingInProgress(inProgress bool) {
-	rb.Lock()
-	defer rb.Unlock()
+	rb.mt.Lock()
+	defer rb.mt.Unlock()
 	rb.shippingInProgress = inProgress
 }
 
 func (rb *Redbox) markShipped() {
-	rb.Lock()
-	defer rb.Unlock()
+	rb.mt.Lock()
+	defer rb.mt.Unlock()
 	rb.shipped = true
 }
 
 // isShippingInProgress exposes whether a send is in progress.
 func (rb *Redbox) isShippingInProgress() bool {
-	rb.Lock()
-	defer rb.Unlock()
+	rb.mt.Lock()
+	defer rb.mt.Unlock()
 	return rb.shippingInProgress
 }
 
 // isShipped exposes whether the box has been shipped
 func (rb *Redbox) isShipped() bool {
-	rb.Lock()
-	defer rb.Unlock()
+	rb.mt.Lock()
+	defer rb.mt.Unlock()
 	return rb.shipped
 }

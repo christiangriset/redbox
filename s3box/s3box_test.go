@@ -168,25 +168,6 @@ func TestNoWritesAfterManifestCreation(t *testing.T) {
 	assert.Equal(sb.Pack(data), errBoxIsShipped)
 }
 
-func TestCantCreateManifestsWhenBoxHasBeenShipped(t *testing.T) {
-	assert := assert.New(t)
-	sb, err := NewS3Box(NewS3BoxOptions{
-		S3Bucket:    s3Bucket,
-		AWSKey:      awsKey,
-		AWSPassword: awsPassword,
-	})
-	assert.NoError(err)
-
-	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	assert.NoError(sb.Pack(data))
-
-	_, err = sb.CreateManifests("test", 1)
-	assert.NoError(err)
-
-	_, err = sb.CreateManifests("test", 1)
-	assert.Equal(err, errBoxIsShipped)
-}
-
 func TestCreatesCorrectNumberOfManifests(t *testing.T) {
 	assert := assert.New(t)
 	sb, err := NewS3Box(NewS3BoxOptions{

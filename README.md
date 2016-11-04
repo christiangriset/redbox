@@ -50,6 +50,7 @@ type NewRedboxOptions struct {
 - BufferSize sets the file sizes uploaded s3. This is useful for memory management and `2*BufferSize` should be comfortably available at all times. AWS recommends this lie between 10MB and 1GB.
 - NManifests will not likely need to be touched. To prevent connection timeouts for extremely large data transports, NManifests will instruct how many manifests to split the data across. A default of 4 should be sufficient for a large number of use cases.
 
+**Note:** The AWS credentials must have both read and write access to the S3 bucket.
 
 ## Redbox - The Methods
 
@@ -62,6 +63,7 @@ Currently Pack is a single row operation which *only* accepts JSONifiable inputs
 ### Ship() ([]string, error)
 
 Ship commits all packed data to Redshift. If "Truncate" is provided in the configuration, the destination table will first be deleted.
+The return is a list of manifests pointing to each data file generated, see [the AWS documentation](http://docs.aws.amazon.com/redshift/latest/dg/loading-data-files-using-manifest.html).
 Ship is transactional, meaning any returned error implies the destination table has been left unchanged.
 
 ## Example
