@@ -159,12 +159,12 @@ func (sb *S3Box) Pack(data []byte) error {
 // input number of manifests. If nManifests is greater than the number of generated
 // s3 files, you'll only receive manifests back point
 func (sb *S3Box) CreateManifests(manifestSlug string, nManifests int) ([]string, error) {
+	sb.mt.Lock()
+	defer sb.mt.Unlock()
+
 	if err := sb.dumpToS3(); err != nil {
 		return nil, err
 	}
-
-	sb.mt.Lock()
-	defer sb.mt.Unlock()
 
 	type entry struct {
 		URL       string `json:"url"`
