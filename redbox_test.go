@@ -69,7 +69,7 @@ func TestSuccessfulJSONPack(t *testing.T) {
 	s3Box := &MockSuccessS3Box{}
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
-	redbox := newRedboxGivenS3BoxAndRedshift(testOptions, s3Box, redshift)
+	redbox := newRedboxInjection(testOptions, s3Box, redshift)
 
 	data, _ := json.Marshal(map[string]interface{}{"key": "value"})
 	assert.NoError(redbox.Pack(data))
@@ -81,7 +81,7 @@ func TestUnsuccessfulCSVPack(t *testing.T) {
 	s3Box := &MockSuccessS3Box{}
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
-	redbox := newRedboxGivenS3BoxAndRedshift(testOptions, s3Box, redshift)
+	redbox := newRedboxInjection(testOptions, s3Box, redshift)
 
 	data := []byte("d1,d2")
 	assert.Equal(redbox.Pack(data), errInvalidJSONInput)
@@ -96,7 +96,7 @@ func TestCorrectDBCallsOnSendWithTruncate(t *testing.T) {
 	options := testOptions
 	options.Truncate = true
 	options.NManifests = 5
-	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
@@ -126,7 +126,7 @@ func TestCorrectDBCallsOnSendWithoutTruncate(t *testing.T) {
 	assert.NoError(err)
 	options := testOptions
 	options.NManifests = 5
-	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
@@ -152,7 +152,7 @@ func TestRollbackOnError(t *testing.T) {
 	assert.NoError(err)
 	options := testOptions
 	options.NManifests = 5
-	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
@@ -178,7 +178,7 @@ func TestNoActionWithNoDataWrites(t *testing.T) {
 	assert.NoError(err)
 	options := testOptions
 	options.NManifests = 0
-	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	manifests, err := redbox.Ship()
 	assert.Nil(manifests)
@@ -193,7 +193,7 @@ func TestNoActionsAllowedDuringOrAfterSuccessfulSend(t *testing.T) {
 	assert.NoError(err)
 	options := testOptions
 	options.NManifests = 5
-	redbox := newRedboxGivenS3BoxAndRedshift(options, s3Box, redshift)
+	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
