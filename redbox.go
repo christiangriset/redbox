@@ -65,8 +65,8 @@ type Redbox struct {
 	shipped bool
 }
 
-// NewRedboxOptions specifies the configuration for a new Redbox
-type NewRedboxOptions struct {
+// RedboxOptions specifies the configuration for a new Redbox
+type RedboxOptions struct {
 	// Schema is the destination Redshift table schema
 	Schema string
 
@@ -114,7 +114,7 @@ type NewRedboxOptions struct {
 }
 
 // newRedboxInjection returns an Redbox with given input s3Box and redshift inputs.
-func newRedboxInjection(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
+func newRedboxInjection(options RedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
 	return &Redbox{
 		schema:      options.Schema,
 		table:       options.Table,
@@ -132,7 +132,7 @@ func newRedboxInjection(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift
 // NewRedbox creates a new Redbox given the input options.
 // Errors occur if there's an invalid input or if there's
 // difficulty setting up either an s3 or redshift connection.
-func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
+func NewRedbox(options RedboxOptions) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
 		return nil, errIncompleteArgs
 	}
