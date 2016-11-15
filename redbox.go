@@ -14,11 +14,11 @@ import (
 const defaultNManifests = 4
 
 var (
-	errShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
-	errIncompleteArgs     = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
-	errInvalidJSONInput   = fmt.Errorf("Only JSON inputs are supported.")
-	errBoxShipped         = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
-	errNothingToShip      = fmt.Errorf("Cannot perform send, no data was packed.")
+	errShippingInProgress = fmt.Errorf("cannot perform any action when shipping is in progress")
+	errIncompleteArgs     = fmt.Errorf("creating a redshift box requires a schema, table and an s3 bucket")
+	errInvalidJSONInput   = fmt.Errorf("only JSON inputs are supported")
+	errBoxShipped         = fmt.Errorf("cannot perform any actions, the box has been shipped")
+	errNothingToShip      = fmt.Errorf("cannot perform send, no data was packed")
 )
 
 // Redbox manages piping data into Redshift.
