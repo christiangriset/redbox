@@ -21,16 +21,19 @@ type RedshiftConfiguration struct {
 }
 ```
 
-### NewRedboxOptions
+### RedboxOptions
 
 ```
-type NewRedboxOptions struct {
+type RedboxOptions struct {
   // Required inputs
   Schema                string
   Table                 string
   S3Bucket              string
-  Truncate              bool
   RedshiftConfiguration RedshiftConfiguration
+
+  // Truncate clears the destination table before transporting data.
+  // This is useful for tables representing snapshots of the world.
+  Truncate              bool
 
   // Optional region of the S3Bucket. If not provided Redbox attempts to use 
   // the AWS API to get its location, however requires the user have permission for this action.
@@ -40,15 +43,20 @@ type NewRedboxOptions struct {
   AWSKey      string
   AWSPassword string
 	
-  // Optional management configurations.
-  BufferSize int // Default: 100MB
-  NManifests int // Default: 4
+  // BufferSize sets the files sizes uploaded to S3. Defaults to 100MB.
+  //
+  // This is useful for memory management and `2*BufferSize` should be comfortably available.
+  // For efficient COPY to Redshift, AWS recommends this lie between 10MB and 1GB.
+  BufferSize int
+
+  // NManifests splits the data across its number of manifest files, performing that
+  // number of separate COPY commands. Defaults to 4.
+  //
+  // For extremely large data transports, Redshift COPYs may timeout with a single manifest.
+  // The default should be sufficient for most use cases, otherwise consider increasing.
+  NManifests int
 }
 ```
-
-- Truncate instructs Redbox to clear the destination first before transporting data. This is useful for tables representing current snapshots of the world.
-- BufferSize sets the file sizes uploaded s3. This is useful for memory management and `2*BufferSize` should be comfortably available at all times. AWS recommends this lie between 10MB and 1GB.
-- NManifests will not likely need to be touched. To prevent connection timeouts for extremely large data transports, NManifests will instruct how many manifests to split the data across. A default of 4 should be sufficient for a large number of use cases.
 
 **Note:** The AWS credentials must have both read and write access to the S3 bucket.
 
@@ -71,7 +79,7 @@ Ship is transactional, meaning any returned error implies the destination table 
 ```
 func SomeJob() {
   // Setup. AWS creds determined from environment.
-  redbox, err := NewRedbox(NewRedboxOptions{
+  redbox, err := NewRedbox(RedboxOptions{
     Schema:   "schema",
     Table:    "table",
     S3Bucket: "bucket-with-user-access",
