@@ -14,11 +14,11 @@ import (
 const defaultNManifests = 4
 
 var (
-	errShippingInProgress = fmt.Errorf("Cannot perform any action when shipping is in progress.")
-	errIncompleteArgs     = fmt.Errorf("Creating a redshift box requires a schema, table and an s3 bucket.")
-	errInvalidJSONInput   = fmt.Errorf("Only JSON inputs are supported.")
-	errBoxShipped         = fmt.Errorf("Cannot perform any actions, the box has been shipped.")
-	errNothingToShip      = fmt.Errorf("Cannot perform send, no data was packed.")
+	errShippingInProgress = fmt.Errorf("cannot perform any action when shipping is in progress")
+	errIncompleteArgs     = fmt.Errorf("creating a redshift box requires a schema, table and an s3 bucket")
+	errInvalidJSONInput   = fmt.Errorf("only JSON inputs are supported")
+	errBoxShipped         = fmt.Errorf("cannot perform any actions, the box has been shipped")
+	errNothingToShip      = fmt.Errorf("cannot perform send, no data was packed")
 )
 
 // Redbox manages piping data into Redshift.
@@ -28,29 +28,8 @@ type Redbox struct {
 	// Inheret mutex locking/unlocking
 	mt sync.Mutex
 
-	// schema is the schema of the destination
-	schema string
-
-	// table is the table name of the destination
-	table string
-
-	// awsKey is the AWS ACCESS KEY ID to the s3bucket
-	awsKey string
-
-	// awsPassword is the AWS SECRET ACCESS KEY to the s3Bucket
-	awsPassword string
-
-	// s3Bucket is the bucket storing our data
-	s3Bucket string
-
-	// s3Region is the location of the destination s3Bucket
-	s3Region string
-
-	// truncate indicates if we should truncate the destination table
-	truncate bool
-
-	// nManifests is the number of manifests to split streamed data into.
-	nManifests int
+	// o holds the options used for configurating the Redbox instance
+	o RedboxOptions
 
 	// s3Box manages the transport of data to Redshift
 	s3Box s3box.S3BoxAPI
@@ -65,8 +44,8 @@ type Redbox struct {
 	shipped bool
 }
 
-// NewRedboxOptions specifies the configuration for a new Redbox
-type NewRedboxOptions struct {
+// RedboxOptions specifies the configuration for a new Redbox
+type RedboxOptions struct {
 	// Schema is the destination Redshift table schema
 	Schema string
 
@@ -114,25 +93,18 @@ type NewRedboxOptions struct {
 }
 
 // newRedboxInjection returns an Redbox with given input s3Box and redshift inputs.
-func newRedboxInjection(options NewRedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
+func newRedboxInjection(options RedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
 	return &Redbox{
-		schema:      options.Schema,
-		table:       options.Table,
-		s3Bucket:    options.S3Bucket,
-		s3Region:    options.S3Region,
-		nManifests:  options.NManifests,
-		awsKey:      options.AWSKey,
-		awsPassword: options.AWSPassword,
-		s3Box:       s3Box,
-		redshift:    redshift,
-		truncate:    options.Truncate,
+		o:        options,
+		s3Box:    s3Box,
+		redshift: redshift,
 	}
 }
 
 // NewRedbox creates a new Redbox given the input options.
 // Errors occur if there's an invalid input or if there's
 // difficulty setting up either an s3 or redshift connection.
-func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
+func NewRedbox(options RedboxOptions) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
 		return nil, errIncompleteArgs
 	}
@@ -154,6 +126,7 @@ func NewRedbox(options NewRedboxOptions) (*Redbox, error) {
 
 	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
 		S3Bucket:    options.S3Bucket,
+		S3Region:    options.S3Region,
 		AWSKey:      options.AWSKey,
 		AWSPassword: options.AWSPassword,
 		BufferSize:  options.BufferSize,
@@ -208,7 +181,7 @@ func (rb *Redbox) Ship() ([]string, error) {
 		rb.setShippingInProgress(false)
 	}()
 
-	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.nManifests)
+	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.o.NManifests)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +199,7 @@ func (rb *Redbox) Ship() ([]string, error) {
 
 // manifestSlug defines a convention for the slug of each manifest file.
 func (rb *Redbox) manifestSlug() string {
-	return fmt.Sprintf("%s_%s_%s", rb.schema, rb.table, time.Now().Format(time.RFC3339))
+	return fmt.Sprintf("%s_%s_%s", rb.o.Schema, rb.o.Table, time.Now().Format(time.RFC3339))
 }
 
 // copyToRedshift transports data pointed to by the manifests into Redshift.
@@ -237,8 +210,8 @@ func (rb *Redbox) copyToRedshift(manifests []string) error {
 		return err
 	}
 
-	if rb.truncate {
-		delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", rb.schema, rb.table)
+	if rb.o.Truncate {
+		delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", rb.o.Schema, rb.o.Table)
 		if _, err := tx.Exec(delStmt); err != nil {
 			tx.Rollback()
 			return err
@@ -258,11 +231,11 @@ func (rb *Redbox) copyToRedshift(manifests []string) error {
 
 // copyStatment generates the COPY statement for the given manifest and Redbox configuration
 func (rb *Redbox) copyStatement(manifest string) string {
-	manifestURL := fmt.Sprintf("s3://%s/%s", rb.s3Bucket, manifest)
-	copy := fmt.Sprintf("COPY \"%s\".\"%s\" FROM '%s' MANIFEST REGION '%s'", rb.schema, rb.table, manifestURL, rb.s3Region)
+	manifestURL := fmt.Sprintf("s3://%s/%s", rb.o.S3Bucket, manifest)
+	copy := fmt.Sprintf("COPY \"%s\".\"%s\" FROM '%s' MANIFEST REGION '%s'", rb.o.Schema, rb.o.Table, manifestURL, rb.o.S3Region)
 	dataFormat := "GZIP JSON 'auto'"
 	options := "TIMEFORMAT 'auto' TRUNCATECOLUMNS STATUPDATE ON COMPUPDATE ON"
-	creds := fmt.Sprintf("CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'", rb.awsKey, rb.awsPassword)
+	creds := fmt.Sprintf("CREDENTIALS 'aws_access_key_id=%s;aws_secret_access_key=%s'", rb.o.AWSKey, rb.o.AWSPassword)
 	return fmt.Sprintf("%s %s %s %s", copy, dataFormat, options, creds)
 }
 
