@@ -103,7 +103,7 @@ func TestCorrectDBCallsOnSendWithTruncate(t *testing.T) {
 	delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", schema, table)
 	mock.ExpectExec(delStmt).WillReturnResult(sqlmock.NewResult(1, 1))
 
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)
@@ -130,7 +130,7 @@ func TestCorrectDBCallsOnSendWithoutTruncate(t *testing.T) {
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)
@@ -156,7 +156,7 @@ func TestRollbackOnError(t *testing.T) {
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
 	assert.NoError(err)
 
 	copyErr := fmt.Errorf("Some COPY Error")
@@ -197,7 +197,7 @@ func TestNoActionsAllowedDuringOrAfterSuccessfulSend(t *testing.T) {
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.nManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)
