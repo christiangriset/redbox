@@ -209,7 +209,7 @@ func (sb *S3Box) dumpToS3() error {
 		return nil
 	}
 	fileNumber := len(sb.fileLocations)
-	fileKey := fmt.Sprintf("%d_%d.json.gz", sb.timestamp.UnixNano(), fileNumber)
+	fileKey := fmt.Sprintf("%d_%d.gz", sb.timestamp.UnixNano(), fileNumber)
 	if err := writeToS3(sb.s3Handler, sb.s3Bucket, fileKey, sb.bufferedData, true); err != nil {
 		return err
 	}

@@ -148,6 +148,7 @@ func NewRedbox(options RedboxOptions) (*Redbox, error) {
 }
 
 // Pack writes a single row of bytes. Currently accepts JSON inputs.
+// Pack is concurrency safe.
 func (rb *Redbox) Pack(row []byte) error {
 	if rb.isShipped() {
 		return errBoxShipped
