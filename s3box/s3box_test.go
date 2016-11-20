@@ -23,7 +23,7 @@ func getRegionForBucketSuccess(bucket string) (string, error) {
 }
 
 func getRegionForBucketFail(bucket string) (string, error) {
-	return "", fmt.Errorf("Failed getting bucket location.")
+	return "", fmt.Errorf("failed getting bucket location")
 }
 
 func writeToS3Success(s3Handler *s3.S3, schema, table string, input []byte, gzip bool) error {
@@ -31,7 +31,7 @@ func writeToS3Success(s3Handler *s3.S3, schema, table string, input []byte, gzip
 }
 
 func writeToS3Fail(s3Handler *s3.S3, schema, table string, input []byte, gzip bool) error {
-	return fmt.Errorf("Failed writing to s3.")
+	return fmt.Errorf("failed writing to s3")
 }
 
 func TestMain(m *testing.M) {
@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 func TestSuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
 	// We should be able to successfully create a box with both complete and incomplete configurations.
-	_, err := NewS3Box(NewS3BoxOptions{
+	_, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -62,7 +62,7 @@ func TestDontAttemptToGetRegionIfProvided(t *testing.T) {
 
 	assert := assert.New(t)
 	// We should be able to successfully create a box with both complete and incomplete configurations.
-	_, err := NewS3Box(NewS3BoxOptions{
+	_, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		S3Region:    s3Region,
 		AWSKey:      awsKey,
@@ -75,13 +75,13 @@ func TestUnsuccessfulBoxCreation(t *testing.T) {
 	assert := assert.New(t)
 
 	// Error if we include a config without either a schema or table
-	_, err := NewS3Box(NewS3BoxOptions{})
+	_, err := NewS3Box(Options{})
 	assert.Equal(err, errS3BucketRequired)
 }
 
 func TestValidPacks(t *testing.T) {
 	assert := assert.New(t)
-	sb, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -92,7 +92,7 @@ func TestValidPacks(t *testing.T) {
 	assert.NoError(sb.Pack(data1))
 	assert.Equal(len(sb.bufferedData), len(data1)+1) // Account for the appended new line character
 
-	sb, err = NewS3Box(NewS3BoxOptions{
+	sb, err = NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -107,7 +107,7 @@ func TestValidPacks(t *testing.T) {
 func TestCorrectNumberOfS3Writes(t *testing.T) {
 	assert := assert.New(t)
 	data, _ := json.Marshal(map[string]interface{}{"time": time.Now(), "id": "1234"})
-	sb, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -129,7 +129,7 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 	// r := mux.NewRouter()
 	// r.HandleFunc("/", fastHandler).Methods("POST")
 	// httptest.NewServer(r)
-	sb, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -154,7 +154,7 @@ func TestBufferedDataRemainsUnchangedOnPackErrors(t *testing.T) {
 
 func TestNoWritesAfterManifestCreation(t *testing.T) {
 	assert := assert.New(t)
-	sb, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,
@@ -170,7 +170,7 @@ func TestNoWritesAfterManifestCreation(t *testing.T) {
 
 func TestCreatesCorrectNumberOfManifests(t *testing.T) {
 	assert := assert.New(t)
-	sb, err := NewS3Box(NewS3BoxOptions{
+	sb, err := NewS3Box(Options{
 		S3Bucket:    s3Bucket,
 		AWSKey:      awsKey,
 		AWSPassword: awsPassword,

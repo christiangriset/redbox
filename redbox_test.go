@@ -20,7 +20,7 @@ var (
 	awsPassword      = "secret"
 	testManifestSlug = "slug"
 
-	testOptions = RedboxOptions{
+	testOptions = Options{
 		Schema:      schema,
 		Table:       table,
 		S3Bucket:    s3Bucket,
