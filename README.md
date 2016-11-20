@@ -21,10 +21,10 @@ type RedshiftConfiguration struct {
 }
 ```
 
-### RedboxOptions
+### Options
 
 ```
-type RedboxOptions struct {
+type Options struct {
   // Required inputs
   Schema                string
   Table                 string
@@ -79,7 +79,7 @@ Ship is transactional, meaning any returned error implies the destination table 
 ```
 func SomeJob() {
   // Setup. AWS creds determined from environment.
-  redbox, err := NewRedbox(RedboxOptions{
+  redbox, err := NewRedbox(Options{
     Schema:   "schema",
     Table:    "table",
     S3Bucket: "bucket-with-user-access",

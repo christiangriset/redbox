@@ -29,10 +29,10 @@ type Redbox struct {
 	mt sync.Mutex
 
 	// o holds the options used for configurating the Redbox instance
-	o RedboxOptions
+	o Options
 
 	// s3Box manages the transport of data to Redshift
-	s3Box s3box.S3BoxAPI
+	s3Box s3box.API
 
 	// redshift is the direct redshift connection
 	redshift *sql.DB
@@ -44,8 +44,8 @@ type Redbox struct {
 	shipped bool
 }
 
-// RedboxOptions specifies the configuration for a new Redbox
-type RedboxOptions struct {
+// Options specifies the configuration for a new Redbox
+type Options struct {
 	// Schema is the destination Redshift table schema
 	Schema string
 
@@ -93,7 +93,7 @@ type RedboxOptions struct {
 }
 
 // newRedboxInjection returns an Redbox with given input s3Box and redshift inputs.
-func newRedboxInjection(options RedboxOptions, s3Box s3box.S3BoxAPI, redshift *sql.DB) *Redbox {
+func newRedboxInjection(options Options, s3Box s3box.API, redshift *sql.DB) *Redbox {
 	return &Redbox{
 		o:        options,
 		s3Box:    s3Box,
@@ -104,7 +104,7 @@ func newRedboxInjection(options RedboxOptions, s3Box s3box.S3BoxAPI, redshift *s
 // NewRedbox creates a new Redbox given the input options.
 // Errors occur if there's an invalid input or if there's
 // difficulty setting up either an s3 or redshift connection.
-func NewRedbox(options RedboxOptions) (*Redbox, error) {
+func NewRedbox(options Options) (*Redbox, error) {
 	if options.Schema == "" || options.Table == "" || options.S3Bucket == "" {
 		return nil, errIncompleteArgs
 	}
@@ -124,7 +124,7 @@ func NewRedbox(options RedboxOptions) (*Redbox, error) {
 		options.S3Region = s3Region
 	}
 
-	s3Box, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
+	s3Box, err := s3box.NewS3Box(s3box.Options{
 		S3Bucket:    options.S3Bucket,
 		S3Region:    options.S3Region,
 		AWSKey:      options.AWSKey,

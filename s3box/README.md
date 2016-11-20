@@ -10,9 +10,9 @@ See both below and the [the godocs](https://godoc.org/github.com/cgclever/redbox
 
 ### NewS3Box
 
-`func NewS3Box(options NewS3BoxOptions) (*S3Box, error)`
+`func NewS3Box(options Options) (*S3Box, error)`
 
-### NewS3BoxOptions
+### Options
 
 ```
 type NewS3oxOptions struct {
@@ -67,7 +67,7 @@ type Row struct {
 
 func SomeJob() {
   // Setup
-  sb, err := s3box.NewS3Box(s3box.NewS3BoxOptions{
+  sb, err := s3box.NewS3Box(s3box.Options{
     S3Bucket: "bucket-with-user-access",
     AWSKey: yourAWSAccessKeyID,
     AWSPassword: yourAWSSecretAccessKey,

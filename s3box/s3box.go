@@ -20,10 +20,10 @@ const (
 
 var (
 	// errS3BucketRequired signals an s3 bucket wasn't provided
-	errS3BucketRequired = fmt.Errorf("An s3 bucket is required to create an s3box.")
+	errS3BucketRequired = fmt.Errorf("an s3 bucket is required to create an s3box")
 
 	// ErrBoxIsSealed signals an operation which can't occur when a box is sealed.
-	errBoxIsShipped = fmt.Errorf("Cannot perform action after creating manifests as box has been shipped.")
+	errBoxIsShipped = fmt.Errorf("cannot perform action after creating manifests as box has been shipped")
 )
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
@@ -32,7 +32,7 @@ type S3Box struct {
 	mt sync.Mutex
 
 	// o stores the input options pointing
-	o NewS3BoxOptions
+	o Options
 
 	// s3Handler manages the piping of data to s3
 	s3Handler *s3.S3
@@ -51,10 +51,10 @@ type S3Box struct {
 	isShipped bool
 }
 
-// NewS3BoxOptions is the expected input for creating a new S3Box.
+// Options is the expected input for creating a new S3Box.
 // Currently only an S3Bucket is required. If AWS vars aren't explicitly provided, they'll
 // be pulled from your environment.
-type NewS3BoxOptions struct {
+type Options struct {
 	// S3Bucket is the destination s3 bucket.
 	// This is required.
 	S3Bucket string
@@ -85,7 +85,7 @@ type NewS3BoxOptions struct {
 
 // NewS3Box creates a new S3Box given the input options.
 // Errors occur if there's an invalid input or if there's difficulty setting up an s3 connection.
-func NewS3Box(options NewS3BoxOptions) (*S3Box, error) {
+func NewS3Box(options Options) (*S3Box, error) {
 	// Check for required inputs and a valid destination config
 	if options.S3Bucket == "" {
 		return nil, errS3BucketRequired
