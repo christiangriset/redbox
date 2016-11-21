@@ -28,7 +28,7 @@ var (
 
 // S3Box manages piping data into S3. The mechanics are to buffer data locally, ship to s3 when too much is buffered, and finally create manifests pointing to the data files.
 type S3Box struct {
-	// Inheret mutex locking/unlocking
+	// Inherit mutex locking/unlocking
 	mt sync.Mutex
 
 	// o stores the input options pointing
@@ -77,9 +77,9 @@ type Options struct {
 	// By default grabs from your environment.
 	AWSToken string
 
-	// BufferSize is the maximum size of data we buffer internally
-	// before creating an s3 file.
-	// This is optional and defaults to 10MB.
+	// BufferSize is the maximum size of data, in bytes,
+	// we buffer internally before creating an s3 file.
+	// This is optional and defaults to 100MB.
 	BufferSize int
 }
 
