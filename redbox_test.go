@@ -95,7 +95,7 @@ func TestCorrectDBCallsOnSendWithTruncate(t *testing.T) {
 	assert.NoError(err)
 	options := testOptions
 	options.Truncate = true
-	options.NManifests = 5
+	options.NumManifests = 5
 	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
@@ -103,7 +103,7 @@ func TestCorrectDBCallsOnSendWithTruncate(t *testing.T) {
 	delStmt := fmt.Sprintf("DELETE FROM \"%s\".\"%s\"", schema, table)
 	mock.ExpectExec(delStmt).WillReturnResult(sqlmock.NewResult(1, 1))
 
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NumManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)
@@ -125,12 +125,12 @@ func TestCorrectDBCallsOnSendWithoutTruncate(t *testing.T) {
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
 	options := testOptions
-	options.NManifests = 5
+	options.NumManifests = 5
 	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NumManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)
@@ -151,12 +151,12 @@ func TestRollbackOnError(t *testing.T) {
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
 	options := testOptions
-	options.NManifests = 5
+	options.NumManifests = 5
 	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NumManifests)
 	assert.NoError(err)
 
 	copyErr := fmt.Errorf("Some COPY Error")
@@ -177,7 +177,7 @@ func TestNoActionWithNoDataWrites(t *testing.T) {
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
 	options := testOptions
-	options.NManifests = 0
+	options.NumManifests = 0
 	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	manifests, err := redbox.Ship()
@@ -192,12 +192,12 @@ func TestNoActionsAllowedDuringOrAfterSuccessfulSend(t *testing.T) {
 	redshift, mock, err := sqlmock.New()
 	assert.NoError(err)
 	options := testOptions
-	options.NManifests = 5
+	options.NumManifests = 5
 	redbox := newRedboxInjection(options, s3Box, redshift)
 
 	// Set expected commands for mocked SQL client
 	mock.ExpectBegin()
-	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NManifests)
+	manifests, err := s3Box.CreateManifests(testManifestSlug, redbox.o.NumManifests)
 	assert.NoError(err)
 	for _, manifest := range manifests {
 		copyStmt := redbox.copyStatement(manifest)

@@ -11,7 +11,7 @@ import (
 	"github.com/cgclever/redbox/s3box"
 )
 
-const defaultNManifests = 4
+const defaultNumManifests = 4
 
 var (
 	errShippingInProgress = fmt.Errorf("cannot perform any action when shipping is in progress")
@@ -73,7 +73,7 @@ type Options struct {
 	// before creating an s3 file.
 	BufferSize int
 
-	// NManifests is an optional parameter choosing how many manifests
+	// NumManifests is an optional parameter choosing how many manifests
 	// to break data into. When data transfer gets to several gigabytes
 	// the user may need to experiment with larger manifest numbers to prevent
 	// timeouts.
@@ -81,7 +81,7 @@ type Options struct {
 	// Note: This number isn't  autocalculated as
 	// different cluster configurations can handle different influxes
 	// of data. However the number defaults to 4.
-	NManifests int
+	NumManifests int
 
 	// Truncate indicates if we should clear the destination table before
 	// transferring data. This is useful for tables representing snapshots
@@ -140,8 +140,8 @@ func NewRedbox(options Options) (*Redbox, error) {
 		return nil, err
 	}
 
-	if options.NManifests <= 0 {
-		options.NManifests = defaultNManifests
+	if options.NumManifests <= 0 {
+		options.NumManifests = defaultNumManifests
 	}
 
 	return newRedboxInjection(options, s3Box, redshift), nil
@@ -182,7 +182,7 @@ func (rb *Redbox) Ship() ([]string, error) {
 		rb.setShippingInProgress(false)
 	}()
 
-	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.o.NManifests)
+	manifests, err := rb.s3Box.CreateManifests(rb.manifestSlug(), rb.o.NumManifests)
 	if err != nil {
 		return nil, err
 	}

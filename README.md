@@ -49,12 +49,12 @@ type Options struct {
   // For efficient COPY to Redshift, AWS recommends this lie between 10MB and 1GB.
   BufferSize int
 
-  // NManifests splits the data across its number of manifest files, performing that
+  // NumManifests splits the data across its number of manifest files, performing that
   // number of separate COPY commands. Defaults to 4.
   //
   // For extremely large data transports, Redshift COPYs may timeout with a single manifest.
   // The default should be sufficient for most use cases, otherwise consider increasing.
-  NManifests int
+  NumManifests int
 }
 ```
 
