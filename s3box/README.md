@@ -24,12 +24,13 @@ type NewS3oxOptions struct {
 	AWSPassword       string
 	AWSToken          string
 	
-	// Optional
-	BufferSize  int    // Default 10MB
+  // BufferSize controls the amount of data, in bytes, stored in each s3 file.
+  //
+  // For memory management, at least `2*BufferSize` of memory should be available
+  // at any time. Defaults to 100MB.
+	BufferSize  int
 }
 ```
-
-The expected usecase around controlling BufferSize is for worker memory management. To comfortably use this package at least `2*BufferSize` of memory should be available at any time.
 
 ## S3Box - The Methods
 
@@ -37,7 +38,7 @@ The expected usecase around controlling BufferSize is for worker memory manageme
 
 `func Pack(data []byte) error`
 
-Pack buffers the data. Once the buffer grows larger than it's maximum size (10MB by default)
+Pack buffers the data. Once the buffer grows larger than the supplied `BufferSize`
 the data is gziped and streamed to s3.
 
 Pack is concurrency safe.
@@ -52,7 +53,7 @@ The user can then set off their own custom COPY commands utilizing these manifes
 
 **Note1**: The input should *not* be the full s3 path. The configuration will already include the bucket and create the full path for you. This helps prevent cases where a different bucket from the input configuration is supplied.
 
-**Note2**: If the number of generated data files is less than `numManifests`, the return will be a number of manifests equal to the number of data files. 
+**Note2**: If the number of generated data files is less than `numManifests`, the return will be a number of manifests equal to the number of data files.
 
 # Example
 ```

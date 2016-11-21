@@ -43,7 +43,7 @@ type Options struct {
   AWSKey      string
   AWSPassword string
 	
-  // BufferSize sets the files sizes uploaded to S3. Defaults to 100MB.
+  // BufferSize sets the files sizes, in bytes, uploaded to S3. Defaults to 100MB.
   //
   // This is useful for memory management and `2*BufferSize` should be comfortably available.
   // For efficient COPY to Redshift, AWS recommends this lie between 10MB and 1GB.

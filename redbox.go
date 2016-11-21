@@ -25,7 +25,7 @@ var (
 // An S3Box is used to manage data transport to S3 via Pack, after
 // which Ship commits the data to Redshift.
 type Redbox struct {
-	// Inheret mutex locking/unlocking
+	// Inherit mutex locking/unlocking
 	mt sync.Mutex
 
 	// o holds the options used for configurating the Redbox instance
@@ -69,7 +69,7 @@ type Options struct {
 	// AWSPassword is the AWS SECRET ACCESS KEY
 	AWSPassword string
 
-	// BufferSize is the maximum size of data we're willing to buffer
+	// BufferSize is the maximum size of data, in bytes, we're willing to buffer
 	// before creating an s3 file.
 	BufferSize int
 
