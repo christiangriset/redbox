@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/lib/pq" // Postgres driver
+	_ "github.com/Clever/pq" // Postgres driver
 )
 
 // defaultConnectionTimeout is the default timeout, in seconds, for attempting to connect to Redshift
